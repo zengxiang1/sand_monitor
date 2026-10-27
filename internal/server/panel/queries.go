@@ -33,6 +33,7 @@ type loginRecord struct {
 type chart struct{ Title, Line, Line2, Area, Top, Mid, Zero, Start, End, Summary string }
 type tag struct{ Text, Tone string }
 type page struct {
+	PublicHome                                                              bool
 	Precision                                                               string
 	Ranges                                                                  []option
 	Reenable                                                                bool

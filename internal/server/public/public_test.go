@@ -62,7 +62,7 @@ func TestExportWhitelistAndDisabledFields(t *testing.T) {
 	if err := e.Export(now); err != nil {
 		t.Fatal(err)
 	}
-	markers := []string{"leak_node_51", "unselected_node_52", "revoked_node_53", "leak_bin_54", "leak_os_55", "leak_arch_56", "leak_user_57", "leak_note_58", "leak_fingerprint_59", "leak_provider_60", "192.0.2.77", "192.0.2.78", "not public", "revoked display"}
+	markers := []string{"leak_node_51", "unselected_node_52", "revoked_node_53", "leak_bin_54", "leak_os_55", "leak_arch_56", "leak_user_57", "leak_note_58", "leak_fingerprint_59", "leak_provider_60", "192.0.2.77", "192.0.2.78", "not public", "revoked display", `href="/login"`, `href="/static/`, "/public"}
 	files := 0
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -237,7 +237,7 @@ func TestOfflineRoundingAndPreview(t *testing.T) {
 	if err != nil || d.Summary.Offline != 1 || d.Nodes[0].Status != "offline" || d.Nodes[0].Usage != nil || d.Nodes[0].Net != nil || d.Nodes[0].UptimeDays != nil || d.Nodes[0].OfflineSince == "" {
 		t.Fatal(d, err)
 	}
-	html, err := Render(d, true)
+	html, err := Render(d, RenderOptions{Preview: true})
 	if err != nil || !strings.Contains(string(html), "预览 · 未发布") || !strings.Contains(string(html), `href="/static/status.css"`) || !strings.Contains(string(html), "离线 1 小时") {
 		t.Fatal(string(html), err)
 	}
@@ -246,7 +246,7 @@ func TestOfflineRoundingAndPreview(t *testing.T) {
 	if err != nil || d.Nodes[0].OfflineSince != "" {
 		t.Fatal(d, err)
 	}
-	html, _ = Render(d, false)
+	html, _ = Render(d, RenderOptions{})
 	if strings.Contains(string(html), "起没有响应") || strings.Contains(string(html), "离线 1 小时") {
 		t.Fatal(string(html))
 	}
@@ -262,7 +262,7 @@ func TestFieldSwitchesIndependentlyAndDisplayOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	html, err := Render(d, false)
+	html, err := Render(d, RenderOptions{})
 	if err != nil || strings.Contains(string(html), "离线 10 分钟") || !strings.Contains(string(html), "起无响应") {
 		t.Fatal(string(html), err)
 	}
@@ -272,7 +272,7 @@ func TestFieldSwitchesIndependentlyAndDisplayOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	html, _ = Render(d, false)
+	html, _ = Render(d, RenderOptions{})
 	if strings.Contains(string(html), "离线 10 分钟") || strings.Contains(string(html), "起无响应") {
 		t.Fatal(string(html))
 	}
@@ -331,7 +331,7 @@ func TestPublicRateAndShortUptime(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		raw, err := Render(d, false)
+		raw, err := Render(d, RenderOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,5 +344,36 @@ func TestPublicRateAndShortUptime(t *testing.T) {
 		if err != nil || !strings.Contains(string(data), `"uptime_days":`) {
 			t.Fatal(string(data), err)
 		}
+	}
+}
+
+func TestRenderOptions(t *testing.T) {
+	d := Document{Title: "状态页", Generated: time.Now().Format(time.RFC3339), Interval: 60}
+	for _, tc := range []struct {
+		name    string
+		options RenderOptions
+		css     string
+		login   bool
+	}{
+		{"export", RenderOptions{}, "status.css", false},
+		{"preview", RenderOptions{Preview: true}, "/static/status.css", false},
+		{"panel", RenderOptions{Login: true}, "/static/status.css", true},
+		{"preview suppresses login", RenderOptions{Preview: true, Login: true}, "/static/status.css", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := Render(d, tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			html := string(raw)
+			if !strings.Contains(html, `href="`+tc.css+`"`) || strings.Contains(html, `href="/login">登录</a>`) != tc.login || strings.Contains(html, "预览 · 未发布") != tc.options.Preview || strings.Contains(html, `http-equiv="refresh" content="60"`) == tc.options.Preview {
+				t.Fatal(html)
+			}
+			for _, marker := range []string{"<style", "<script", "style=", "http://", "https://"} {
+				if strings.Contains(html, marker) {
+					t.Error("unsafe HTML", marker)
+				}
+			}
+		})
 	}
 }

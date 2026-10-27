@@ -455,9 +455,11 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 
 在“公开页”中选择节点、填写公开显示名和字段开关，保存草稿后可预览；点击“保存并发布”立即导出。新节点默认不公开。公告的编辑、删除和更换链接口令都先改草稿，发布后才影响访客。
 
-配置 `public_dir` / `WANGLOU_PUBLIC_DIR` 为可写目录；`public_url` / `WANGLOU_PUBLIC_URL` 为展示用的 HTTPS 地址，例如 `https://status.example.com`。未配置目录时仍可编辑和预览。公开页由独立静态服务器提供，服务端的两个端口均不提供公开页面或 JSON 路由。Docker Compose 已挂载 `status_public` 卷，Caddy 只读提供其中的文件；`STATUS_DOMAIN` 默认 `status.localhost`，正式使用时改为自己的域名。
+配置 `public_dir` / `WANGLOU_PUBLIC_DIR` 为可写目录；`public_url` / `WANGLOU_PUBLIC_URL` 为展示用的 HTTPS 地址，例如 `https://status.example.com`。未配置目录时仍可编辑和预览。导出的公开页由独立静态服务器提供，接收端不提供公开页面，两个端口均不提供公开 JSON 路由。Docker Compose 已挂载 `status_public` 卷，Caddy 只读提供其中的文件；`STATUS_DOMAIN` 默认 `status.localhost`，正式使用时改为自己的域名。
 
 导出文件只有 `index.html`、`status.json` 和 `status.css`，不含 IP、内部节点名、服务商、账单、备注、登录信息或身份信息。使用白名单结构生成，无 JavaScript 或外部资源；字段关闭时也从 JSON 省略。可以通过 rsync 或对象存储把这三个静态文件同步到另一台机器；目标机器不需要面板账号、接收端或任何密钥。公开页被攻破只能篡改页面显示。
+
+访问方式为“公开”时，未登录访客访问面板首页会看到已发布的公开状态页，右上角的“登录”链接可进入管理面板，登录后首页仍是总览。此功能不依赖 `public_dir`。不想在面板域名上展示时，可以选择 token（口令）访问方式，或者把面板放在 Cloudflare Access 等认证服务后面。
 
 口令模式使用随机链接目录。切换模式或发布新口令后，旧位置的三个导出文件会清理，其他文件保留；同步到其他机器时也需同步删除旧的导出文件。口令链接是持有链接即可访问的方式，分享时请按此理解。
 

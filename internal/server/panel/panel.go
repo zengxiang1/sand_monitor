@@ -73,17 +73,21 @@ type failures struct {
 }
 type session struct{ User, CSRF, Hash string }
 type Handler struct {
-	Store      *store.Store
-	Ingest     *ingest.Handler
-	Config     Config
-	Now        func() time.Time
-	Logf       func(string, ...any)
-	mux        *http.ServeMux
-	templates  *template.Template
-	signingKey string
-	dummy      string
-	mu         sync.Mutex
-	ips, users map[string]failures
+	Store         *store.Store
+	Ingest        *ingest.Handler
+	Config        Config
+	Now           func() time.Time
+	Logf          func(string, ...any)
+	mux           *http.ServeMux
+	templates     *template.Template
+	signingKey    string
+	dummy         string
+	mu            sync.Mutex
+	ips, users    map[string]failures
+	publicMu      sync.Mutex
+	publicRaw     string
+	publicHTML    []byte
+	publicExpires time.Time
 }
 
 func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
@@ -136,6 +140,22 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 			if !entry.public {
 				var err error
 				sess, err = h.authenticate(r)
+				publicHome := entry.action == "overview" && (r.Method == "GET" || r.Method == "HEAD") && r.URL.Query().Get("fragment") != "1"
+				if publicHome {
+					w.Header().Set("Cache-Control", "no-store")
+				}
+				if errors.Is(err, sql.ErrNoRows) && publicHome {
+					var html []byte
+					html, err = h.publicHome()
+					if err == nil {
+						if html != nil {
+							w.Header().Set("Content-Type", "text/html; charset=utf-8")
+							_, _ = w.Write(html)
+							return
+						}
+						err = sql.ErrNoRows
+					}
+				}
 				if errors.Is(err, sql.ErrNoRows) {
 					if entry.page && r.URL.Query().Get("fragment") != "1" {
 						http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -145,7 +165,12 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 					return
 				}
 				if err != nil {
-					h.serverError(w, err)
+					if publicHome {
+						h.Logf("panel: %v", err)
+						http.Error(w, "服务暂时不可用", 500)
+					} else {
+						h.serverError(w, err)
+					}
 					return
 				}
 				w.Header().Set("Cache-Control", "no-store")
@@ -231,6 +256,15 @@ func (h *Handler) audit(user, ip, action, detail string) error {
 	return err
 }
 func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, data page, status int) {
+	if name == "login" && status != http.StatusTooManyRequests {
+		_, c, err := h.publishedPublic()
+		if err != nil {
+			h.Logf("panel: %v", err)
+			http.Error(w, "服务暂时不可用", 500)
+			return
+		}
+		data.PublicHome = c.Access == "public"
+	}
 	data.Page = name
 	data.Refresh = data.User != "" && (name == "overview" || name == "node" || name == "enroll" && data.Code != "" && data.Pubkey == "")
 	var output bytes.Buffer

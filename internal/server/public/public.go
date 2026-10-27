@@ -334,17 +334,20 @@ var tmpl = template.Must(template.New("status.html").Funcs(template.FuncMap{
 func AnnouncementStatus(s string) string {
 	return map[string]string{"investigating": "排查中", "monitoring": "已修复，观察中", "resolved": "已恢复", "scheduled": "计划维护", "done": "维护完成"}[s]
 }
-func Render(d Document, preview bool) ([]byte, error) {
+
+type RenderOptions struct{ Preview, Login bool }
+
+func Render(d Document, options RenderOptions) ([]byte, error) {
 	var b bytes.Buffer
 	css := "status.css"
-	if preview {
+	if options.Preview || options.Login {
 		css = "/static/status.css"
 	}
 	err := tmpl.Execute(&b, struct {
 		Document
-		Preview bool
-		CSS     string
-	}{d, preview, css})
+		Preview, Login bool
+		CSS            string
+	}{d, options.Preview, options.Login && !options.Preview, css})
 	return b.Bytes(), err
 }
 
@@ -375,7 +378,7 @@ func (e *Exporter) Export(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	html, err := Render(d, false)
+	html, err := Render(d, RenderOptions{})
 	if err != nil {
 		return err
 	}

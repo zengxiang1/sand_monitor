@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -26,6 +27,45 @@ type publicPage struct {
 	Announcement                              status.Announcement
 }
 
+func (h *Handler) publishedPublic() (string, status.PublicConfig, error) {
+	raw, err := h.Store.KV("public.published")
+	if err != nil {
+		return "", status.PublicConfig{}, err
+	}
+	var c status.PublicConfig
+	if raw == "" || json.Unmarshal([]byte(raw), &c) != nil || c.Validate() != nil || c.Access != "public" {
+		return raw, status.PublicConfig{}, nil
+	}
+	return raw, c, nil
+}
+
+func (h *Handler) publicHome() ([]byte, error) {
+	h.publicMu.Lock()
+	defer h.publicMu.Unlock()
+	raw, c, err := h.publishedPublic()
+	if err != nil {
+		return nil, err
+	}
+	if c.Access != "public" {
+		h.publicHTML = nil
+		return nil, nil
+	}
+	now := h.Now()
+	if raw == h.publicRaw && h.publicHTML != nil && now.Before(h.publicExpires) {
+		return h.publicHTML, nil
+	}
+	d, err := status.Build(h.Store, c, now)
+	if err != nil {
+		return nil, err
+	}
+	html, err := status.Render(d, status.RenderOptions{Login: true})
+	if err != nil {
+		return nil, err
+	}
+	h.publicRaw, h.publicHTML, h.publicExpires = raw, html, now.Add(time.Duration(c.Interval)*time.Second)
+	return html, nil
+}
+
 func (h *Handler) public(w http.ResponseWriter, r *http.Request, sess session, action string) {
 	c, err := status.Load(h.Store, "public.draft")
 	if err != nil {
@@ -38,7 +78,7 @@ func (h *Handler) public(w http.ResponseWriter, r *http.Request, sess session, a
 			h.serverError(w, err)
 			return
 		}
-		html, err := status.Render(d, true)
+		html, err := status.Render(d, status.RenderOptions{Preview: true})
 		if err != nil {
 			h.serverError(w, err)
 			return
