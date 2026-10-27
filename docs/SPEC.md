@@ -305,3 +305,336 @@ Makefile                    build / test / lint / cross-compile
    - 迁移：用第一阶段 schema 建的库能升级到 v3，原有数据保留。
    - 面板端口与接收端端口路由互不可见。
 5. 端到端（我会亲自做）：本地 `--insecure-http` 起接收端和面板，`admin add` 建号，用生成的密钥算验证码登录，用注册码接入一台本机 agent，在浏览器里核对三个页面与设计稿一致，并确认自动刷新、静音、吊销、标记常用 IP 都按预期工作。
+
+---
+
+# 第三阶段：续费与流量、公开状态页
+
+范围：续费与流量页、总览里的“续费与流量”区块和行内标签、公开页设置、公开状态页导出、外部心跳。界面以 `docs/design/Billing.dc.html`、`PublicSettings.dc.html`、`Status.dc.html` 和 `Main.dc.html` 里的“续费与流量”区块为准（布局、配色、文案、信息层级）。面板导航改为：总览 / 节点详情 / 续费与流量 / 公开页 / 接入节点。
+
+前两阶段的全部安全约束和面板约束（CSP、无内联样式/脚本、CSRF + Origin、审计、只用标准库）继续有效。另加两条：
+
+1. **agent 不改。** 本阶段不改 `cmd/wanglou-agent`、`internal/agent/...`、`internal/proto`。到期日、价格、额度只存在面板数据库里，已用流量由服务端根据每次上报的 `net_total` 累加。
+2. **公开页是导出的静态文件。** `wanglou-server` 不为公开页提供任何 HTTP 路由：不在接收端端口上，也不在面板端口上。服务端按设置定时把 `index.html`、`status.json`、`status.css` 写进一个目录，由独立的静态文件服务器（compose 里是 Caddy `file_server`）对外提供。导出内容只能来自专门的白名单结构体，**不得直接序列化 `store.Node` 或任何存储层结构**。公开页所在的机器（或容器）没有面板账号、接收端和任何密钥，被攻破最多只能篡改这一页的显示内容。
+
+## 配置（新增键，环境变量同样适用）
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `timezone` | `Local` | IANA 时区名，例如 `Asia/Shanghai`。到期日、重置日、按天统计的可用率、09:00 的提醒时间都按这个时区算。服务端 `import _ "time/tzdata"`，容器里没有时区库也能用。名字无效则拒绝启动。 |
+| `public_dir` | 空（不导出） | 公开页导出目录。为空时公开页设置仍可编辑，但页面上提示“未配置 public_dir，不会导出”。 |
+| `public_url` | 空 | 公开页的访问地址，只用于在设置页显示和拼出带口令的链接。必须是 https，`--insecure-http` 时才允许 http。 |
+| `heartbeat_url` | 空（不启用） | 外部心跳地址（Healthchecks 一类服务）。必须是 https，`--insecure-http` 时才允许 http。 |
+
+## 存储变更（迁移到 `user_version=4`，第一阶段和第二阶段的库都要能原地升级）
+
+- `billing(node TEXT PRIMARY KEY REFERENCES nodes(name), provider TEXT NOT NULL, expiry TEXT NOT NULL, cycle TEXT NOT NULL, currency TEXT NOT NULL, price TEXT NOT NULL, auto_renew INTEGER NOT NULL, quota_gb INTEGER NOT NULL, reset_day INTEGER NOT NULL, direction TEXT NOT NULL, remind_days TEXT NOT NULL, remind_pct TEXT NOT NULL, predict INTEGER NOT NULL, notify TEXT NOT NULL, updated_at INTEGER NOT NULL)`
+  - 取值和校验：
+    - `expiry`：`YYYY-MM-DD` 或空。
+    - `cycle`：`month|quarter|half|year|once`。
+    - `currency`：`CNY|USD|EUR`。
+    - `price`：匹配 `^\d{1,7}(\.\d{1,2})?$`，或者为空。
+    - `quota_gb`：0 到 10000000 的整数，0 表示不限。
+    - `reset_day`：0 到 28，0 表示跟随到期日。
+    - `direction`：`both|out|in|max`。
+    - `remind_days`：逗号分隔，取值是 `30,14,7,3,1` 的子集。
+    - `remind_pct`：逗号分隔，取值是 `50,80,90,95,100` 的子集。
+    - `notify`：逗号分隔，取值是 `telegram,webhook` 的子集。空表示只记录、不发送。
+    - `provider`：最多 64 个字符。
+- `traffic(node TEXT PRIMARY KEY REFERENCES nodes(name), cycle_start TEXT NOT NULL, used_tx TEXT NOT NULL, used_rx TEXT NOT NULL, adjust TEXT NOT NULL, last_tx TEXT NOT NULL, last_rx TEXT NOT NULL, last_up REAL NOT NULL, first_seen INTEGER NOT NULL)`
+  - 无符号计数按十进制字符串存，`adjust` 是有符号整数。
+  - 所有节点都记账，不管有没有账单信息。
+- `daily(node TEXT NOT NULL REFERENCES nodes(name), day TEXT NOT NULL, tx TEXT NOT NULL, rx TEXT NOT NULL, online INTEGER NOT NULL, PRIMARY KEY(node, day))`：按 `timezone` 的本地日期统计。
+- `reminders(node TEXT NOT NULL, key TEXT NOT NULL, ts INTEGER NOT NULL, channels TEXT NOT NULL, PRIMARY KEY(node, key))`：提醒去重和已发送记录。
+- `kv(key TEXT PRIMARY KEY, value TEXT NOT NULL)`：存公开页的 `public.draft`、`public.published`、`public.exported_at`。
+- `events` 加列 `targets TEXT NOT NULL DEFAULT ''`。
+- 清理任务：`daily` 保留 60 天，`reminders` 保留 400 天。
+
+## 流量与在线时长记账（在 `Accept` 的同一个事务里）
+
+- **增量**：每个方向分别计算。
+  - 第一次上报只记基线，增量为 0，同时写 `first_seen`。
+  - 之后，如果 `report.Up >= last_up` 且计数没有变小，增量 = 当前值 − 上次值。
+  - 否则视为重启，增量 = 当前值。
+  - 单次增量超过 1 TB（10^12 字节）视为异常，记为 0，只更新基线。
+  - 累加用饱和加法，不能溢出。
+- 增量加到 `traffic.used_*`，同时加到当天的 `daily.tx/rx`。
+- **计费口径** `counted`：
+  - `both` = tx + rx
+  - `out` = tx
+  - `in` = rx
+  - `max` = max(tx, rx)
+
+  在此基础上再加 `adjust`，结果小于 0 时按 0 算。GB 一律按 10^9 字节（和服务商口径一致），1000 GB 显示为 1 TB。
+- **周期**：
+  - 周期起点是本地日期中“不晚于今天、且日号等于重置日”的最近一天，时间取 00:00。
+  - `reset_day=0` 时，重置日取到期日的日号。月份没有那么多天时取当月最后一天。
+  - 没有账单信息的节点按自然月算（每月 1 日）。
+  - 发现周期起点变了，就把 `used_tx`、`used_rx`、`adjust` 清零并更新 `cycle_start`。有账单信息的节点同时记一条 `traffic_reset` 事件，`notified=1`，即“只记录，不发送”。
+  - 这个滚动逻辑抽成一个函数，上报时和定时检查时都会调用。
+- **校准**：管理员填写“本周期已用 X GB”时，令 `adjust = X·10^9 − 按当前口径算出的已用量`，之后在这个值上继续累加。
+- **在线时长**：
+  - 如果上一次上报距今不超过 `3 × 上报周期`，把这段间隔计入 `daily.online`。间隔跨越本地零点时，按零点拆到两天。
+  - 否则这段间隔算作离线，不计入。
+- **每天的可用情况**：
+  - 观测时长 = 当天与 `[first_seen, 现在]` 的重叠时长。
+  - 离线时长 = 观测时长 − 在线时长。
+  - 判定：
+    - 观测时长为 0：无数据。
+    - 离线不超过 60 秒：全天在线。
+    - 离线少于 1 小时：短暂中断。
+    - 其余：中断超过 1 小时。
+  - 45 天可用率 = 在线总和 ÷ 观测总和，向下保留 2 位小数，完全相等时显示 `100%`；没有观测数据时显示 `—`。
+
+## 提醒（服务端每 60 秒检查一次）
+
+判定写成纯函数，输入是账单、流量和当前时间，输出是应发的提醒，单独测试。只处理未吊销、并且有账单信息的节点。
+
+- **到期提醒（手动续费）**：
+  - 到期前 N 天（N 取自 `remind_days`）提醒一次，文案：“还有 N 天到期，需要手动续费”。
+  - 到期当天必定提醒一次：“今天到期”。
+  - 到期后第 1 天提醒一次：“已过期 1 天，记得续费”。
+  - 去重键 `exp:<到期日>:<N>`，到期当天 N=0，过期 N=-1。改了到期日就会重新开始提醒。
+- **自动续费**：
+  - 忽略 `remind_days`，只在到期前 3 天提醒一次：“3 天后自动扣费（<价格>），确认余额”。去重键 `auto:<到期日>`。
+  - 到期日过后的第二天 00:00 起，周期不是 `once` 的，到期日自动顺延一个周期。同时记 `billing` 事件，`notified=1`，文案“已按自动续费顺延到 YYYY-MM-DD”，并写审计。
+- **触发时间**：按日期触发的提醒，在当天本地时间 09:00 之后的第一次检查发出。服务端整天没运行就跳过这一天，**不补发过期日期的提醒**。
+- **流量阈值**：
+  - 条件：`quota_gb > 0`，并且本周期用量百分比 ≥ `remind_pct` 里某个阈值，且该阈值还没提醒过。
+  - 去重键 `pct:<cycle_start>:<阈值>`。
+  - 同一次检查中如果跨过多个阈值，只发最高的那一条，较低的阈值一并标记为已发。
+  - 文案：“本周期流量用到 90%（930 GB / 1 TB）”。
+  - 流量提醒随时可发，不等 09:00。
+- **预测**：
+  - 条件：`predict=1`、`quota_gb > 0`，并且还没用满。
+  - 速度 = 最近 3 个完整本地日里有数据的那几天的计费用量之和 ÷ 天数。一个完整日都没有时不预测。
+  - 预计用完时间早于下次重置时，每个周期提醒一次，去重键 `pred:<cycle_start>`。文案：“按现在的速度 MM-DD 用完，MM-DD 才重置”。
+  - 页面上的预测文字（表格和总览共用一个函数）：
+    - 节点失联：“节点失联，统计暂停”。
+    - 会在重置前用完：“按现在的速度 MM-DD 用完”。
+    - 其他情况：“预计重置前用到 N%”。
+    - 数据不足：不显示。
+- **发送**：
+  - 一条提醒写成一个事件，`kind` 为 `billing` 或 `traffic`，`targets` 等于账单里的 `notify`。`reminders` 行在同一个事务里写入。
+  - `notify` 为空时，事件直接写 `notified=1`。
+  - 分发器的 `Notifier` 接口加 `Kind() string`（`telegram` / `webhook`）。`targets` 非空时只投递给列出的渠道，其他渠道视为已处理。`targets` 为空的旧事件行为不变。
+  - `billing`、`traffic` 事件**不受节点静音影响**；静音只针对告警。
+  - 事件类型的中文名：`billing` → 续费，`traffic` 和 `traffic_reset` → 流量。
+
+## 外部心跳
+
+- 配置了 `heartbeat_url` 时，每 60 秒对它发一次 GET，不带任何数据。
+- 前提：离线检查和提醒检查都在最近 2 分钟内成功跑过。任一卡住就停止心跳，让外部服务报警。
+- 请求超时 10 秒，不跟随重定向，响应体限长读取后丢弃。
+- 总览的接收端卡片增加“外部心跳”一行：显示“N 分钟前”“未配置”或“失败（N 分钟前成功过）”。地址本身不显示。
+
+## 页面：续费与流量 `GET /billing`（`?edit=<node>` 打开编辑器）
+
+- **说明文字**：照抄设计稿，右侧显示“今天 YYYY-MM-DD”（本地时区）。
+- **统计卡**：
+  - 7 天内到期：0 ≤ 剩余天数 ≤ 7。副标题列出最多 2 台，格式“name 还剩 N 天”。
+  - 流量超过 80%：副标题“name 93% · name 81%”，最多 2 台。
+  - 30 天内要续费：副标题“其中 N 台已开自动续费”。
+  - 未来 7 天提醒：副标题“下一条：MM-DD name”。
+- **服务器表**：
+  - 包含所有未吊销节点，按到期日升序，没设到期日的排最后。
+  - 列：节点 + 服务商；到期日 + 剩余天数标签；续费方式（“月付 ¥58”和“自动续费 / 手动续费”）；本周期流量（“已用 / 额度”、SVG 进度条、百分比），下面一行周期说明（“每月 N 日重置 · 上下行合计 · <预测文字>”）。
+  - 不限额度的节点显示“不统计额度，只记录用量”。
+  - 没有账单信息的节点显示“未设置”，但仍显示已用流量。
+  - 剩余天数标签：
+    - 小于 0：“已过期 N 天”，红色。
+    - 等于 0：“今天到期”。
+    - 不超过 3：红色。
+    - 不超过 7：黄色。
+    - 其余：灰色。
+  - 进度条颜色：≥95% 红，≥80% 黄。
+  - “编辑”是链接 `?edit=name#editor`。
+- **编辑器**：`POST /billing/{name}`，字段和分组按设计稿（账单 / 流量 / 提醒规则）：
+  - 服务商。
+  - 到期日：`<input type=date>`，可留空。
+  - 续费周期。
+  - 每期价格：币种下拉加数字。
+  - 自动续费：复选框，附设计稿说明文字。
+  - 每周期额度（GB）。
+  - 每月重置日：1 到 28 加“跟随到期日”。
+  - 计费方式。
+  - 校准本周期已用（GB）：选填，留空表示不改。占位符显示当前已用量。
+  - 到期前提醒和流量提醒：复选框组。
+  - 预测提醒：复选框。
+  - 发送到：只列出已配置的渠道（Telegram / Webhook），一个都没配置时显示“未配置任何通知渠道”。设计稿里的“邮件”不做。
+
+  保存后重定向到 `?edit=name&saved=1`，显示“已保存，提醒已按新规则重新排期”。校验失败返回 400，重新渲染表单，保留已填的值并显示错误。“放弃修改”是回到 `?edit=name` 的链接。
+- **已续费一期**：`POST /billing/{name}/renewed`，到期日加一个周期。月份加法按月末截断，例如 01-31 加一个月是 02-28 或 02-29。`once` 周期不显示这个按钮。
+- **提醒日程**：
+  - 内容是两部分合在一起，按时间排序，最多 30 行：
+    - 过去 24 小时已发送的提醒，取自 `reminders`。状态显示“已发送 · Telegram、Webhook”或“已记录 · 未选择渠道”。
+    - 未来 14 天按日期可预见的提醒：到期提醒、自动续费提醒、周期重置（“流量周期重置，用量清零 · 只记录，不发送”），以及会触发的预测提醒（“预计 MM-DD 用完流量 · 预测提醒”）。
+  - 底部文字照抄设计稿。没配置心跳时追加“（当前未配置外部心跳）”。
+- **审计**：保存账单、校准、已续费一期、自动顺延都写 `audit_log`。
+
+## 总览变更（`GET /`）
+
+- 在统计卡和登录横幅之后、服务器表之前，加入设计稿的“续费与流量”区块：
+  - 左栏“7 天内到期”：包含已过期的节点，最多 5 条。文案示例“10-30 到期 · 季付 $15 · 手动续费”。
+  - 右栏“流量超过 80%”：最多 5 条。文案示例“930 GB / 1 TB · <预测文字>”。
+  - 两栏各有空状态文案（“7 天内没有要续费的服务器”“没有流量超过 80% 的服务器”）。
+  - 一条账单信息都没有时，区块里只显示“还没有设置账单信息，去设置 →”。
+- 服务器表的节点名旁加标签：
+  - “N 天后到期”：0 到 7 天，≤3 天红色，否则黄色。
+  - “已过期”。
+  - “流量 N%”：≥80%，≥95% 红色。
+
+## 页面：公开页设置 `GET /public`
+
+- **草稿与发布**：
+  - 全部设置是一份 JSON 文档 `PublicConfig`：标题、导出间隔、访问方式、口令、字段开关、节点列表（内部名、是否公开、显示名）、公告列表。
+  - 存两份：`public.draft` 和 `public.published`。两份不同时显示“有未发布的修改……”。
+  - “保存并发布”把草稿复制为发布版，并立即触发一次导出。
+- **页头**：
+  - 发布状态标签（“已发布 / 未发布”）。
+  - `public_url`，没配置时显示“未配置 public_url”。
+  - “上次导出 HH:MM”或“从未导出”。
+  - “预览公开页”链接。
+  - “保存并发布”按钮：用 `form=` 属性提交主表单，带 `publish=1`。
+- **主表单** `POST /public`（保存草稿；带 `publish=1` 时同时发布）：
+  - 公开哪些节点：列出所有未吊销节点，列为“公开”复选框、内部名、公开显示名输入框、当前状态。
+    - 显示名最多 32 个字符，勾选公开时必填。
+    - 当前状态的“注意”标签旁加说明“公开页显示正常”。
+    - 新接入的节点默认不公开。
+  - 显示哪些信息：字段开关和说明文字照设计稿，但去掉“地区”这一项：显示名里自己写城市即可，少一个字段少一份泄露。
+    - 配置：说明改为“内存和磁盘大小”，因为 agent 不采集 CPU 核数，本阶段也不改 agent。
+    - CPU / 内存 / 磁盘占用。
+    - 网络速率。
+    - 运行时长。
+    - 45 天可用率。
+    - 离线提示。
+  - 始终不公开：静态列表，照抄设计稿。
+  - 基本设置：
+    - 页面标题：最多 40 个字符，默认“服务器状态”。
+    - 导出间隔：30 秒 / 1 分钟 / 5 分钟，附设计稿说明。
+    - 访问方式：“任何人可访问”或“带口令的链接”。选口令方式时显示完整链接，并提供“更换口令”按钮（`POST /public/token`）。口令是 16 字节随机数的 base64url（22 个字符）。
+- **公告**（单独的表单，改的都是草稿）：
+  - 新增或编辑：`POST /public/announcements`，编辑时带 `id`；`?edit_ann=<id>` 时把表单填好。
+  - 字段：
+    - 标题：最多 80 个字符。
+    - 相关节点：下拉列出公开节点的显示名，外加“全部 / 不指定”。
+    - 状态：排查中 / 已修复，观察中 / 已恢复 / 计划维护 / 维护完成。
+    - 时间：`datetime-local`，默认当前时间。
+    - 内容：最多 1000 个字符。
+  - 标题或内容为空时提示“填写标题和内容后才能添加。”
+  - 最多 100 条。
+  - 删除：`POST /public/announcements/{id}/delete`。确认步骤用 `<details>`，文案“删除后公开页上也会消失，不能恢复。”，按钮“保留 / 删除公告”。
+- **预览**：`GET /public/preview` 用导出用的同一个模板渲染草稿和当前数据，在面板内展示（走面板 CSP，样式用 `/static/status.css`），页面顶部加一条“预览 · 未发布”。
+- **底部说明**：照抄设计稿“公开页怎么生成”一段。
+- **审计**：保存草稿、发布、增删改公告、更换口令都写 `audit_log`。
+
+## 公开页导出（新包 `internal/server/public/`）
+
+- **触发**：配置了 `public_dir` 且存在发布版时，按发布版的间隔导出，最短 30 秒。发布后立即导出一次。导出完成后写 `public.exported_at`。
+- **输出位置**：
+  - 公开访问时写在 `public_dir/` 下：`index.html`、`status.json`、`status.css`。
+  - 口令访问时写在 `public_dir/<token>/` 下，同时删除 `public_dir/` 下这三个文件，根路径就没有内容。
+  - 输出位置变了（换口令或改访问方式）时，删除旧位置的这三个文件，旧口令目录如果空了就 `os.Remove`。**不得使用 `os.RemoveAll`，不删除其他任何文件**。只把匹配 `^[A-Za-z0-9_-]{22}$` 的目录名当作口令目录。
+- **写入方式**：先写同目录下的临时文件，再 rename。目录权限 0755，文件权限 0644。
+- **页面内容**（`index.html`）：
+  - 用 `html/template` 预先渲染，带 `<meta http-equiv="refresh" content="<间隔秒数>">`。
+  - 没有任何 JS，没有内联样式和脚本，没有外部资源，使用系统字体。进度条和可用率格子用 SVG 属性画。
+  - 布局和文案照 `Status.dc.html`：
+    - 标题，以及“更新于 HH:MM · 每 30 秒刷新”。
+    - 汇总横幅：“N 台正常运行，M 台离线”，全部正常时为“全部 N 台正常运行”。
+    - 离线说明：开了离线提示时是“<显示名> 从 HH:MM 起没有响应。”，否则只列出显示名。
+    - 正常 / 离线计数。
+    - 每台服务器一张卡片：显示名、配置、状态、三项占用、离线说明、↑↓ 速率、运行时长、45 格可用率和图例、“45 天前 可用率 X 今天”。每个格子用 `<title>` 写明“MM-DD 全天在线 / 短暂中断（N 分钟）/ 中断 N 小时 M 分 / 无数据”。
+    - 公告（有公告时才显示）。
+    - 页脚“本页只展示运行状态，不包含 IP、服务商、账单和登录信息。由望楼生成”。
+  - 字段开关关掉的内容，在 HTML 和 JSON 里都不出现。
+- **状态与取值**：
+  - 公开页的状态只有 `正常` 和 `离线`。资源告警算正常；失联或从未上报算离线。
+  - 已吊销的节点即使勾选了公开也不导出。节点按显示名排序。
+  - 取值精度：
+    - 占用：整数百分比。
+    - 速率：保留 2 位有效数字。
+    - 运行时长：向下取整到天（“已运行 N 天”），离线时改为“离线 N 分钟 / N 小时”（只在开了离线提示时显示）。
+    - 内存：小于 4 GB 时按 0.5 GB 取整，否则取整数 GB。
+    - 磁盘：取整数 GB。
+  - 生成时间截断到导出间隔。
+- **`status.json`**（版本 1，字段关掉时省略）：
+  ```json
+  {"v":1,"title":"服务器状态","generated":"2026-10-27T14:32:00+08:00","interval":30,
+   "summary":{"ok":6,"offline":1},
+   "nodes":[{"name":"香港 · 01","status":"ok","specs":{"mem_gb":2,"disk_gb":40},
+     "usage":{"cpu":14,"mem":41,"disk":46},"net":{"tx":1500000,"rx":8600000},
+     "uptime_days":12,"offline_since":"2026-10-27T14:29:00+08:00",
+     "availability":{"pct":"99.98","days":[{"date":"2026-09-13","state":"ok","down_s":0}]}}],
+   "announcements":[{"time":"2026-10-27T14:35:00+08:00","title":"…","node":"北京 · 01","status":"investigating","body":"…"}]}
+  ```
+  - `name` 是显示名。
+  - `state` 取值：`ok|partial|down|none`。
+  - 公告的 `node` 是相关节点的显示名。相关节点已经不公开时省略这个字段。
+  - **内部节点名不得出现在任何导出文件里**。
+
+## Docker 与文档
+
+- **Dockerfile**：server 镜像创建 `/public`，属主为运行用户（与 `/data` 一样），这样只读根文件系统加命名卷也能写入。
+- **`compose.yml`**：
+  - `wanglou-server` 增加环境变量：
+    - `WANGLOU_PUBLIC_DIR: /public`
+    - `WANGLOU_PUBLIC_URL: https://${STATUS_DOMAIN:-status.localhost}`
+    - `WANGLOU_TIMEZONE: ${WANGLOU_TIMEZONE:-UTC}`
+    - `WANGLOU_HEARTBEAT_URL: ${WANGLOU_HEARTBEAT_URL:-}`
+
+    并挂载卷 `status_public:/public`。
+  - `caddy` 以只读方式挂载 `status_public:/srv/status:ro`，并增加 `STATUS_DOMAIN: ${STATUS_DOMAIN:-status.localhost}`。默认值是 `.localhost`，不会去申请证书。
+- **`Caddyfile`**：
+  ```
+  {$STATUS_DOMAIN} {
+  	root * /srv/status
+  	file_server
+  	header {
+  		Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  		X-Content-Type-Options nosniff
+  		Referrer-Policy no-referrer
+  		-Server
+  	}
+  }
+  ```
+  不开 `browse`。
+- **`.env.example`**：增加 `STATUS_DOMAIN`、`WANGLOU_TIMEZONE`（示例 `Asia/Shanghai`）、`WANGLOU_HEARTBEAT_URL`，全部附注释。
+- **README**：
+  - 续费与流量的用法。
+  - 公开页的安全模型：静态导出，可以用 rsync 或对象存储同步到另一台机器。
+  - 外部心跳配置。
+  - 时区说明。
+- **`make check-panel-assets`**：同样检查公开页模板和 `status.css`（放在 `internal/server/public/web/`）。
+
+## 第三阶段验收
+
+1. 前两阶段的全部验收项继续通过（`make check`）。`go.mod` 的 require 列表不变。
+2. `git diff` 中 `cmd/wanglou-agent`、`internal/agent`、`internal/proto` 没有改动。
+3. 测试至少覆盖：
+   - **迁移**：v1 和 v3 的库升级到 v4，原有数据保留。
+   - **流量记账**：正常增量、重启（uptime 变小、计数变小）、首次基线、超过 1 TB 的异常增量、饱和加法、四种计费口径、校准、周期滚动（含重置日 31 号在 2 月、跟随到期日、自然月）、跨零点拆分在线时长。
+   - **可用率**：四种日状态的判定、45 天汇总、`first_seen` 之前算无数据。
+   - **提醒纯函数**：
+     - 到期前 N 天、当天、过期 1 天；09:00 之前不发；不补发错过的日期。
+     - 自动续费只在前 3 天提醒，以及自动顺延（含月末截断）。
+     - 同一次检查跨过多个流量阈值时只发最高的一条。
+     - 每周期只预测提醒一次；数据不足时不预测。
+     - 改到期日后重新提醒；去重键不重复。
+   - **分发器**：`targets` 只投递给指定渠道；`notify` 为空时不发送；`billing`/`traffic` 不受静音影响；旧事件行为不变。
+   - **续费页**：表单校验（非法日期、价格、阈值、渠道等返回 400）、保存、已续费一期、`once` 周期没有该按钮。
+   - **公开页导出**：
+     - **泄露测试**：节点名、IP、服务商、备注、指纹、bin 哈希、os/arch、登录用户名都设成独特的标记字符串，导出后在全部导出文件中搜索，一个都不能出现；字段开关关掉后，对应数据在 HTML 和 JSON 里都不出现。
+     - 未公开和已吊销的节点不导出。
+     - 口令模式：根目录没有页面；换口令后旧目录里的文件被清除，旧目录之外的文件不受影响；不匹配口令格式的目录永不删除。
+     - 原子写入（失败时不留下半个文件）。
+     - XSS：显示名、公告标题和内容里的 `<script>` 只以转义形式出现。
+   - **公开页设置**：草稿与发布、显示名必填、公告增删改及上限、预览在面板 CSP 下正常渲染。
+   - **路由**：新路由全部被第二阶段的路由表认证测试覆盖；接收端端口和面板端口上都没有公开页路由。
+   - **心跳**：后台循环卡住时停止发送。
+4. **端到端（我会亲自做）**：
+   - 本地起服务端，接入 agent，在续费页编辑账单。
+   - 用测试时钟或改数据验证提醒出现在提醒日程和事件里。
+   - 发布公开页，在浏览器里分别打开导出文件和预览，与设计稿核对。
+   - 切换口令模式，确认旧链接失效。
+   - 跑一遍泄露检查（grep 导出目录）。
