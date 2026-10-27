@@ -7,6 +7,7 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      PANEL_DOMAIN: ${PANEL_DOMAIN:?Set PANEL_DOMAIN in .env}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -32,6 +33,8 @@ services:
     environment:
       WANGLOU_DATABASE: /data/wanglou.db
       WANGLOU_LISTEN: ":8080"
+      WANGLOU_PANEL_LISTEN: ":8081"
+      WANGLOU_PUBLIC_INGEST_URL: https://${DOMAIN}
       WANGLOU_LISTEN_PLAIN: "true"
       WANGLOU_TRUSTED_PROXIES: ${WANGLOU_BACKEND_SUBNET:-172.30.0.0/24}
       WANGLOU_TELEGRAM_TOKEN: ${WANGLOU_TELEGRAM_TOKEN:-}

@@ -134,3 +134,28 @@ func (c *Client) Send(ctx context.Context, r proto.Report) error {
 	}
 	return nil
 }
+
+func (c *Client) Enroll(ctx context.Context, code string) error {
+	body, err := json.Marshal(struct {
+		Code   string `json:"code"`
+		Pubkey string `json:"pubkey"`
+	}{code, proto.PublicKeyLine(c.key.Public().(ed25519.PublicKey), c.config.Name)})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.config.Server, "/")+"/enroll", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("注册失败")
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("注册失败")
+	}
+	return nil
+}

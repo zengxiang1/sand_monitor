@@ -17,6 +17,7 @@ import (
 	"wanglou/internal/proto"
 	"wanglou/internal/server/alert"
 	"wanglou/internal/server/ingest"
+	"wanglou/internal/server/panel"
 	"wanglou/internal/server/store"
 )
 
@@ -28,16 +29,16 @@ func main() {
 }
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: wanglou-server serve|node add|node list|node revoke|migrate|healthcheck [--config path]")
+		return fmt.Errorf("usage: wanglou-server serve|node|admin|migrate|healthcheck [--config path]")
 	}
 	if args[0] == "healthcheck" {
 		return healthcheckCommand(args[1:])
 	}
 	command := args[0]
 	args = args[1:]
-	if command == "node" {
+	if command == "node" || command == "admin" {
 		if len(args) == 0 {
-			return fmt.Errorf("node requires add|list|revoke")
+			return fmt.Errorf("%s requires a subcommand", command)
 		}
 		command += " " + args[0]
 		args = args[1:]
@@ -46,6 +47,8 @@ func run(args []string) error {
 	path := fs.String("config", defaultConfig, "local config path")
 	insecure := fs.Bool("insecure-http", false, "allow local development HTTP")
 	name := fs.String("name", "", "node name")
+	user := fs.String("user", "", "admin username")
+	passwordStdin := fs.Bool("password-stdin", false, "read password from standard input")
 	pub := fs.String("pubkey", "", "wanglou-ed25519 public key line")
 	if e := fs.Parse(args); e != nil {
 		return e
@@ -54,7 +57,7 @@ func run(args []string) error {
 		return fmt.Errorf("unexpected arguments")
 	}
 	switch command {
-	case "serve", "migrate", "node add", "node list", "node revoke":
+	case "serve", "migrate", "node add", "node list", "node revoke", "admin add", "admin passwd", "admin reset-totp", "admin list", "admin remove":
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -71,6 +74,8 @@ func run(args []string) error {
 	}
 	defer s.Close()
 	switch command {
+	case "admin add", "admin passwd", "admin reset-totp", "admin list", "admin remove":
+		return panel.Admin(s, command[len("admin "):], *user, *passwordStdin, os.Stdin, os.Stdout)
 	case "migrate":
 		return s.Migrate()
 	case "node add":
@@ -137,20 +142,45 @@ func run(args []string) error {
 	handler := ingest.New(s, engine)
 	handler.TrustedProxies = c.TrustedProxies
 	worker(func() { handler.RunLogging(ctx) })
-	server := &http.Server{Addr: c.Listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+
+	servers := []*http.Server{}
+	addServer := func(addr string, handler http.Handler) {
+		servers = append(servers, &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}})
+	}
+	addServer(c.Listen, handler)
+	if c.PanelListen != "" {
+		channels := []string{}
+		if c.TelegramToken != "" {
+			channels = append(channels, "Telegram")
+		}
+		if c.WebhookURL != "" {
+			channels = append(channels, "Webhook")
+		}
+		addServer(c.PanelListen, panel.New(s, handler, panel.Config{CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
+	}
 	worker(func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if e := server.Shutdown(shutdown); e != nil {
-			_ = server.Close()
+		for _, server := range servers {
+			if err := server.Shutdown(shutdown); err != nil {
+				_ = server.Close()
+			}
 		}
 	})
-	if *insecure || c.ListenPlain {
-		e = server.ListenAndServe()
-	} else {
-		e = server.ListenAndServeTLS(c.TLSCert, c.TLSKey)
+	results := make(chan error, len(servers))
+	for _, server := range servers {
+		worker(func() {
+			var err error
+			if *insecure || c.ListenPlain {
+				err = server.ListenAndServe()
+			} else {
+				err = server.ListenAndServeTLS(c.TLSCert, c.TLSKey)
+			}
+			results <- err
+		})
 	}
+	e = <-results
 	stop()
 	wg.Wait()
 	if errors.Is(e, http.ErrServerClosed) {

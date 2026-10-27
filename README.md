@@ -1,7 +1,8 @@
 # wanglou · 望楼
 
 A small, outbound-only VPS monitor. Phase 1 provides signed telemetry ingestion,
-SQLite storage, CLI enrollment and alerts. There is no dashboard in this phase.
+SQLite storage, CLI enrollment and alerts. Phase 2 adds a separate web panel with
+password + TOTP login, history charts and fingerprint-confirmed enrollment.
 Go 1.26 or later is required. The only direct third-party dependency is
 `modernc.org/sqlite`; its required transitive modules are recorded in go.mod/go.sum.
 All binaries build with `CGO_ENABLED=0`.
@@ -92,6 +93,9 @@ Server defaults: `/etc/wanglou/server.toml`, `:8443`,
 ```toml
 database = "/var/lib/wanglou/wanglou.db"
 listen = ":8443"
+panel_listen = ":8444"
+public_ingest_url = "https://monitor.example.com:8443"
+panel_cookie_secure = true
 tls_cert = "/etc/wanglou/tls/fullchain.pem"
 tls_key = "/etc/wanglou/tls/privkey.pem"
 interval = "5s"
@@ -170,8 +174,8 @@ report writes, and transactions coupling replay state, telemetry and events.
 Hourly cleanup removes metrics, logins and events older than seven days (also
 runs at startup). `known_ips` is a small persistent baseline table kept outside
 raw-data retention. It contains no keys or control channel. First-report login
-addresses are considered known; each later new address alerts once and becomes
-known. Binary changes and sustained memory/disk pressure emit events; gaps over
+addresses are considered known; later new addresses alert until an administrator
+marks the IP as common in the panel. Binary changes and sustained memory/disk pressure emit events; gaps over
 three reporting intervals break a sustained episode. Metric timestamps are
 server receipt times, avoiding signed client clock skew in alert durations.
 Unsigned sequence/cumulative traffic counters use decimal TEXT in SQLite to
@@ -187,7 +191,7 @@ preserve all 64 bits. Nothing is downsampled in phase 1.
    ```sh
    cd deploy/docker
    cp .env.example .env
-   # Edit .env: set DOMAIN to your real hostname.
+   # Edit .env: set DOMAIN and PANEL_DOMAIN to your hostnames.
    # ACME_EMAIL is optional; see the Caddy contact instructions below.
    # Optional notifier settings must be supplied as a Telegram token/chat pair.
    ```
@@ -342,7 +346,7 @@ host clocks synchronized.
 ```sh
 make check
 # Equivalent individual checks:
-make lint test cross-compile check-size check-agent-surface check-files
+make lint test cross-compile check-size check-agent-surface check-panel-assets check-files
 ```
 
 `check-agent-surface` uses `go list -deps` for macOS/arm64 and both Linux targets.
@@ -375,3 +379,61 @@ removed with their events during retention cleanup.
 Go builds use the caller's normal cache and module environment; the Makefile
 only forces `CGO_ENABLED=0`. Validation output and machine-specific environment
 paths are not stored in the repository.
+
+## 面板 Web 界面（第二阶段）
+
+面板和接收端由同一个进程提供，使用完全独立的监听端口。设置 `panel_listen`
+启用面板；默认不启用。`public_ingest_url` 是接入命令中使用的接收端 HTTPS 地址。
+`panel_cookie_secure` 默认 `true`，只有本地 `--insecure-http` 才能设为 `false`。
+TLS 模式共用证书；`listen_plain` 模式共用可信代理配置。不要把接收端反代到面板端口。
+
+Docker 部署时在 `.env` 设置 `DOMAIN=monitor.example.com` 和
+`PANEL_DOMAIN=panel.example.com`，然后运行 `docker compose up -d`。
+建议将面板放在 Cloudflare Access、Tailscale 或 Caddy `basic_auth` 后面。
+在 `deploy/docker` 目录创建管理员：
+
+```sh
+docker compose exec wanglou-server wanglou-server admin add --user admin
+```
+
+命令只打印一次随机口令、TOTP 密钥及 `otpauth://` 地址。将密钥添加到验证器 App，
+访问 `https://panel.example.com`，在同一个登录表单填写用户名、口令和 6 位验证码。
+不要将口令、密钥或二维码存入代码仓库。也可使用 `--password-stdin` 输入至少 12 字符口令。
+`admin list` 只显示用户名及时间；`admin passwd`、`admin reset-totp` 和 `admin remove`
+会立即注销该用户的全部会话。这些命令接受 `--user` 与 `--config`。
+
+本地开发可在工作目录创建以下配置（数据库路径按需调整）：
+
+```toml
+database = "dev.db"
+listen = "127.0.0.1:8080"
+panel_listen = "127.0.0.1:8081"
+public_ingest_url = "http://127.0.0.1:8080"
+panel_cookie_secure = false
+```
+
+```sh
+go run ./cmd/wanglou-server admin add --user admin --config dev.toml
+go run ./cmd/wanglou-server serve --config dev.toml --insecure-http
+```
+
+访问 `http://127.0.0.1:8081`。macOS 的桩采集器也可完成接入流程。
+接入节点页先填写节点名与备注并更新命令，在节点安装二进制后运行页面上的 `init`
+命令。可以粘贴公钥预览，也可以生成 10 分钟有效的一次性注册码，在节点运行：
+
+```sh
+sudo wanglou-agent enroll K7QF-29XM
+# 使用非默认配置时：
+wanglou-agent enroll K7QF-29XM --config agent.toml
+```
+
+核对 `wanglou-agent fingerprint` 与页面分组显示的完整指纹，勾选一致后启用，
+然后启动 agent 的 `run` 服务。确认之前接收端始终拒收该节点的指标。
+本地 `init` 还需要 `--insecure-http`，自定义密钥路径时 `fingerprint` 需要 `--key`。
+静音只阻止通知发送，事件继续保存；吊销、备注、确认事件和标记常用 IP 只修改服务端数据库。
+历史图按 1 小时、24 小时、7 天范围在 SQL 中分桶，最多 360 点；页面每 5 秒刷新，
+编辑表单时暂停刷新，禁用 JavaScript 仍可使用全部操作。
+
+启动时数据库自动原地升级至 schema v3；升级前可备份数据库及 WAL。
+新增会话保留至空闲 12 小时或绝对 7 天，注册码保留 1 天，审计记录保留 90 天。
+`make check-panel-assets` 检查嵌入资源的 CSP 约束，并已并入 `make check`。

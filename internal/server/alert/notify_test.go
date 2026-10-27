@@ -209,3 +209,41 @@ func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 		t.Fatal("orphan receipts", receipts, err)
 	}
 }
+
+func TestMutedEventsAreRecordedAndProcessed(t *testing.T) {
+	e, now := setupEngine(t)
+	if _, err := e.Store.DB.Exec(`UPDATE nodes SET muted_until=? WHERE name='node'`, now.Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	events, err := e.Store.Pending(10)
+	if err != nil || len(events) != 1 {
+		t.Fatal(events, err)
+	}
+	calls := 0
+	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error { calls++; return nil })}}
+	if err = d.Deliver(context.Background(), events[0]); err != nil || calls != 0 {
+		t.Fatal(calls, err)
+	}
+	pending, err := e.Store.Pending(10)
+	if err != nil || len(pending) != 0 {
+		t.Fatal(pending, err)
+	}
+	var count int
+	if err = e.Store.DB.QueryRow(`SELECT count(*) FROM events`).Scan(&count); err != nil || count != 1 {
+		t.Fatal("muted event lost", count, err)
+	}
+	if _, err = e.Store.DB.Exec(`UPDATE nodes SET muted_until=0 WHERE name='node'`); err != nil {
+		t.Fatal(err)
+	}
+	send(t, e, now.Add(17*time.Second), sampleReport())
+	pending, err = e.Store.Pending(10)
+	if err != nil || len(pending) != 1 {
+		t.Fatal(pending, err)
+	}
+	if err = d.Deliver(context.Background(), pending[0]); err != nil || calls != 1 {
+		t.Fatal(calls, err)
+	}
+}

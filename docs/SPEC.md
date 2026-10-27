@@ -226,7 +226,7 @@ Makefile                    build / test / lint / cross-compile
 - 未登录访问页面重定向到 `/login`；访问片段或其他非页面请求返回 401。只有 `/login` 和 `/static/*` 免登录。
 - 所有面板响应带安全头：
   - `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'`
-  - `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`
+  - `X-Content-Type-Options: nosniff`、`Referrer-Policy: same-origin`、`X-Frame-Options: DENY`（不能用 `no-referrer`：按 Fetch 规范，那样浏览器提交同源表单时 `Origin` 会变成 `null`，所有 POST 都会被来源校验拒绝）
   - 登录后的页面 `Cache-Control: no-store`
   - 因此模板里**不能有内联 `<script>`、内联事件属性和 `style=""` 属性**，设计稿里的内联样式要改写成 `/static/` 下的样式表。
 - 审计：登录成功/失败、登出、吊销、启用节点、静音、确认事件、标记常用 IP、生成注册码，写入 `audit_log(ts, user, ip, action, detail)`。登录失败同时写服务端日志（不记录提交的口令和验证码）。

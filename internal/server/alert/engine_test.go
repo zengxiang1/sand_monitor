@@ -112,12 +112,15 @@ func TestLoginBaselineNewIPAndBinary(t *testing.T) {
 	r.Bin = "sha256:" + strings.Repeat("b", 64)
 	send(t, e, now.Add(time.Second), r)
 	send(t, e, now.Add(2*time.Second), r)
-	if count(t, e, "login_new_ip") != 1 || count(t, e, "bin_changed") != 1 {
+	if count(t, e, "login_new_ip") != 2 || count(t, e, "bin_changed") != 1 {
 		t.Fatal("login or hash event count")
 	}
 	var records int
 	if err := e.Store.DB.QueryRow(`SELECT count(*) FROM logins`).Scan(&records); err != nil || records != 5 {
 		t.Fatal(records, err)
+	}
+	if _, err := e.Store.DB.Exec(`INSERT INTO known_ips VALUES(?,?)`, "node", "203.0.113.8"); err != nil {
+		t.Fatal(err)
 	}
 	if err := e.Store.Cleanup(now.Add(8 * 24 * time.Hour)); err != nil {
 		t.Fatal(err)

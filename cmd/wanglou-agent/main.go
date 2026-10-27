@@ -25,7 +25,7 @@ func main() {
 }
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: wanglou-agent init|fingerprint|run|version")
+		return fmt.Errorf("usage: wanglou-agent init|fingerprint|enroll|run|version")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	switch args[0] {
@@ -87,6 +87,35 @@ func run(args []string) error {
 			return e
 		}
 		fmt.Println(proto.Fingerprint(key.Public().(ed25519.PublicKey)))
+		return nil
+	case "enroll":
+		if len(args) < 2 || len(args[1]) != 9 || args[1][4] != '-' {
+			return fmt.Errorf("usage: wanglou-agent enroll <CODE> [--config path]")
+		}
+		path := fs.String("config", agent.DefaultConfig, "local config path")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return fmt.Errorf("unexpected arguments")
+		}
+		c, err := agent.LoadConfig(*path)
+		if err != nil {
+			return err
+		}
+		key, err := agent.LoadKey(c.Key)
+		if err != nil {
+			return err
+		}
+		client, err := agent.NewClient(c, key)
+		if err != nil {
+			return err
+		}
+		if err = client.Enroll(context.Background(), args[1]); err != nil {
+			return err
+		}
+		fmt.Println(proto.Fingerprint(key.Public().(ed25519.PublicKey)))
+		fmt.Println("公钥已提交，请去面板核对指纹后启用")
 		return nil
 	case "run":
 		path := fs.String("config", agent.DefaultConfig, "local config path")

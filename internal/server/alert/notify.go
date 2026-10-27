@@ -83,6 +83,13 @@ type Dispatcher struct {
 func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	node, err := d.Store.Node(event.Node)
+	if err != nil {
+		return err
+	}
+	if node.MutedUntil > event.Time || node.MutedUntil > time.Now().Unix() {
+		return d.Store.MarkNotified(event.ID)
+	}
 	var failures []error
 	for _, n := range d.Notifiers {
 		delivered, err := d.Store.Delivered(event.ID, n.ID())

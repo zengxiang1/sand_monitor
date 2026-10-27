@@ -89,7 +89,7 @@ func TestTransportValidation(t *testing.T) {
 		{"[::1]:8080", false, true, false, true}, {":8443", false, false, false, false},
 		{":8443", false, false, true, true},
 	} {
-		c := config{Listen: tc.listen, ListenPlain: tc.plain}
+		c := config{Listen: tc.listen, ListenPlain: tc.plain, PanelCookieSecure: true}
 		if tc.tls {
 			c.TLSCert = "cert"
 			c.TLSKey = "key"
@@ -97,5 +97,43 @@ func TestTransportValidation(t *testing.T) {
 		if err := c.validateTransport(tc.insecure); (err == nil) != tc.ok {
 			t.Fatal(tc, err)
 		}
+	}
+}
+
+func TestPanelConfiguration(t *testing.T) {
+	c, err := loadConfigEnv("", []string{"WANGLOU_PANEL_LISTEN=127.0.0.1:8081", "WANGLOU_LISTEN=127.0.0.1:8080", "WANGLOU_PUBLIC_INGEST_URL=http://127.0.0.1:8080", "WANGLOU_PANEL_COOKIE_SECURE=false"})
+	if err != nil || c.PanelListen != "127.0.0.1:8081" || c.PanelCookieSecure || c.PublicIngestURL != "http://127.0.0.1:8080" {
+		t.Fatal(c, err)
+	}
+	if err = c.validateTransport(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		panel, url           string
+		secure, insecure, ok bool
+	}{
+		{"127.0.0.1:8081", "https://monitor.example.com", true, true, true},
+		{"127.0.0.1:8081", "https://monitor.example.com", false, false, false},
+		{"127.0.0.1:8081", "http://monitor.example.com", true, false, false},
+		{"127.0.0.1:8080", "", true, true, false},
+		{":8081", "", true, true, false},
+		{"127.0.0.1:8081", "https://user@monitor.example.com", true, true, false},
+		{"127.0.0.1:8081", "https://monitor.example.com?query=1", true, true, false},
+		{"127.0.0.1:8081", "https://monitor.example.com#fragment", true, true, false},
+		{"127.0.0.1:8081", "javascript:alert(1)", true, true, false},
+		{"127.0.0.1:8081", "https://monitor.example.com", true, false, true},
+	} {
+		c := config{Listen: "127.0.0.1:8080", PanelListen: tc.panel, PanelCookieSecure: tc.secure, PublicIngestURL: tc.url, TLSCert: "cert", TLSKey: "key"}
+		if err := c.validateTransport(tc.insecure); (err == nil) != tc.ok {
+			t.Fatal(tc, err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "panel.toml")
+	if err = os.WriteFile(path, []byte("panel_listen = \"127.0.0.1:8081\"\npublic_ingest_url = \"https://monitor.example.com\"\npanel_cookie_secure = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = loadConfigEnv(path, nil)
+	if err != nil || !c.PanelCookieSecure || c.PanelListen != "127.0.0.1:8081" {
+		t.Fatal(c, err)
 	}
 }

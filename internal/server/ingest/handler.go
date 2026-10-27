@@ -11,15 +11,14 @@ import (
 	"errors"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 	"wanglou/internal/proto"
 	"wanglou/internal/server/alert"
+	"wanglou/internal/server/requestip"
 	"wanglou/internal/server/store"
 )
 
@@ -53,10 +52,77 @@ type Handler struct {
 	mu              sync.Mutex
 	buckets         map[string]bucket
 	failures        map[string]uint64
+	accepted        uint64
+	enrollIPs       map[string]bucket
 }
 
 func New(s *store.Store, a *alert.Engine) *Handler {
-	return &Handler{Store: s, Alerts: a, Now: time.Now, Rate: 2, Burst: 5, IPRate: 20, IPBurst: 40, MaxIPs: 4096, IPIdle: 5 * time.Minute, Logf: log.Printf, ips: map[string]*list.Element{}, pendingFailures: map[string]uint64{}, buckets: map[string]bucket{}, failures: map[string]uint64{}}
+	return &Handler{Store: s, Alerts: a, Now: time.Now, Rate: 2, Burst: 5, IPRate: 20, IPBurst: 40, MaxIPs: 4096, IPIdle: 5 * time.Minute, Logf: log.Printf, ips: map[string]*list.Element{}, pendingFailures: map[string]uint64{}, buckets: map[string]bucket{}, failures: map[string]uint64{}, enrollIPs: map[string]bucket{}}
+}
+
+type Statistics struct {
+	Accepted uint64
+	Rejected map[string]uint64
+}
+
+func (h *Handler) Stats() Statistics {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := Statistics{Accepted: h.accepted, Rejected: map[string]uint64{}}
+	for k, v := range h.failures {
+		out.Rejected[k] = v
+	}
+	return out
+}
+func (h *Handler) enrollment(w http.ResponseWriter, r *http.Request, ip string, now time.Time) {
+	var active int
+	if err := h.Store.DB.QueryRow(`SELECT count(*) FROM enroll_codes WHERE expires_at>? AND used_at=0`, now.Unix()).Scan(&active); err != nil {
+		h.fail(w, 503, "storage")
+		return
+	}
+	if active == 0 {
+		w.WriteHeader(404)
+		return
+	}
+	h.mu.Lock()
+	b := h.enrollIPs[ip]
+	if now.Sub(b.at) >= time.Minute {
+		b = bucket{at: now}
+	}
+	allowed := b.tokens < 10
+	b.tokens++
+	h.enrollIPs[ip] = b
+	for address, entry := range h.enrollIPs {
+		if now.Sub(entry.at) >= time.Minute {
+			delete(h.enrollIPs, address)
+		}
+	}
+	h.mu.Unlock()
+	if !allowed {
+		h.fail(w, 429, "enroll_rate")
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4096))
+	if err != nil {
+		h.fail(w, 413, "enroll_body")
+		return
+	}
+	var input struct {
+		Code   string `json:"code"`
+		Pubkey string `json:"pubkey"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil {
+		h.fail(w, 400, "enroll")
+		return
+	}
+	var extra json.RawMessage
+	if decoder.Decode(&extra) != io.EOF || h.Store.SubmitEnrollment(input.Code, input.Pubkey, now) != nil {
+		h.fail(w, 400, "enroll")
+		return
+	}
+	w.WriteHeader(204)
 }
 func (h *Handler) FailureCounts() map[string]uint64 {
 	h.mu.Lock()
@@ -145,51 +211,7 @@ func (h *Handler) allowIP(ip string, now time.Time) bool {
 	entry.bucket.tokens--
 	return true
 }
-func remoteIP(addr string) string {
-	ip, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		ip = addr
-	}
-	if parsed := net.ParseIP(ip); parsed != nil {
-		return parsed.String()
-	}
-	return ip
-}
-
-// Only trusted direct peers can supply forwarding information. Walking right
-// to left stops at the first untrusted address, so a client cannot spoof an
-// earlier hop. Invalid chains and all-trusted chains fall back to the peer.
-func (h *Handler) clientIP(r *http.Request) string {
-	peer := remoteIP(r.RemoteAddr)
-	trusted := func(ip netip.Addr) bool {
-		for _, prefix := range h.TrustedProxies {
-			if prefix.Contains(ip) {
-				return true
-			}
-		}
-		return false
-	}
-	addr, err := netip.ParseAddr(peer)
-	if err != nil || !trusted(addr.Unmap()) {
-		return peer
-	}
-	values := r.Header.Values("X-Forwarded-For")
-	if len(values) == 0 {
-		return peer
-	}
-	hops := strings.Split(strings.Join(values, ","), ",")
-	for i := len(hops) - 1; i >= 0; i-- {
-		ip, err := netip.ParseAddr(strings.TrimSpace(hops[i]))
-		if err != nil || ip.Zone() != "" {
-			return peer
-		}
-		ip = ip.Unmap()
-		if !trusted(ip) {
-			return ip.String()
-		}
-	}
-	return peer
-}
+func (h *Handler) clientIP(r *http.Request) string { return requestip.ClientIP(r, h.TrustedProxies) }
 func (h *Handler) allow(node string, now time.Time) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -234,6 +256,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/enroll" {
+		h.enrollment(w, r, ip, now)
+		return
+	}
+	if r.URL.Path == "/healthz" {
+		h.fail(w, 400, "endpoint")
+		return
+	}
+	if r.URL.Path != "/v1/report" {
+		w.WriteHeader(404)
 		return
 	}
 	// Read through a strict bound before inspecting any authentication headers.
@@ -294,7 +328,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if decoder.Decode(&report) != nil {
 			return errReport
 		}
-		var extra any
+		var extra json.RawMessage
 		if decoder.Decode(&extra) != io.EOF || report.Validate() != nil {
 			return errReport
 		}
@@ -302,6 +336,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}, evaluate)
 	switch {
 	case e == nil:
+		h.mu.Lock()
+		h.accepted++
+		h.mu.Unlock()
 		w.WriteHeader(204)
 	case errors.Is(e, errReport):
 		h.fail(w, 400, "report")

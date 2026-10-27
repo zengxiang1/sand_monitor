@@ -1,3 +1,7 @@
 {$DOMAIN} {
 	reverse_proxy wanglou-server:8080
 }
+
+{$PANEL_DOMAIN} {
+	reverse_proxy wanglou-server:8081
+}

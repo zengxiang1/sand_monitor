@@ -2,7 +2,7 @@ GO ?= go
 .NOTPARALLEL: check
 export CGO_ENABLED := 0
 
-.PHONY: build test lint cross-compile check-size check-agent-surface check-files check
+.PHONY: build test lint cross-compile check-size check-agent-surface check-panel-assets check-files check
 build:
 	@mkdir -p bin
 	$(GO) build -trimpath -ldflags='-s -w' -o bin/wanglou-agent ./cmd/wanglou-agent
@@ -26,6 +26,8 @@ check-agent-surface:
 	  GOOS=$$target_os GOARCH=$$target_arch $(GO) list -deps -json ./cmd/wanglou-agent ./internal/agent/... > "$$agent_deps" || exit 1; \
 	  echo "checking $$target"; $(GO) run ./scripts/check-agent-surface < "$$agent_deps" || exit 1; \
 	done
+check-panel-assets:
+	@$(GO) run ./scripts/check-panel-assets
 check-files:
 	@test -s README.md
 	@for file in Dockerfile .dockerignore deploy/docker/compose.yml deploy/docker/Caddyfile deploy/docker/.env.example deploy/docker/agent.compose.yml .github/workflows/ci.yml .github/workflows/docker.yml; do \
@@ -45,4 +47,4 @@ check-files:
 	@! grep -q '^CPUQuota=' deploy/systemd/wanglou-server.service
 	@grep -Fqx 'ReadWritePaths=/var/lib/wanglou' deploy/systemd/wanglou-server.service
 	@echo 'deployment files and README: PASS'
-check: lint test cross-compile check-size check-agent-surface check-files
+check: lint test cross-compile check-size check-agent-surface check-panel-assets check-files

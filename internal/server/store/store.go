@@ -28,6 +28,8 @@ type Node struct {
 	CreatedAt, RevokedAt, LastSeen int64
 	LastSeq                        uint64
 	LastIP, BinHash                string
+	Note, OS, Arch                 string
+	MutedUntil                     int64
 }
 type Event struct {
 	ID       int64  `json:"id"`
@@ -56,7 +58,18 @@ func Open(path string) (*Store, error) {
 }
 func (s *Store) Close() error { return s.DB.Close() }
 func (s *Store) Migrate() error {
-	_, e := s.DB.Exec(`
+	return s.Transaction(func(tx *sql.Tx) error {
+		var version int
+		if e := tx.QueryRow(`PRAGMA user_version`).Scan(&version); e != nil {
+			return e
+		}
+		if version > 3 {
+			return fmt.Errorf("unsupported schema version %d", version)
+		}
+		if version == 3 {
+			return nil
+		}
+		_, e := tx.Exec(`
  CREATE TABLE IF NOT EXISTS nodes(name TEXT PRIMARY KEY, pubkey BLOB NOT NULL, fingerprint TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER NOT NULL DEFAULT 0, last_seq TEXT NOT NULL DEFAULT '0', last_seen INTEGER NOT NULL DEFAULT 0, last_ip TEXT NOT NULL DEFAULT '', bin_hash TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS metrics(node TEXT NOT NULL REFERENCES nodes(name),ts INTEGER NOT NULL,cpu REAL,load1 REAL,load5 REAL,load15 REAL,mem_used REAL,mem_total REAL,swap_used REAL,swap_total REAL,disk_used REAL,disk_total REAL,net_tx REAL,net_rx REAL,net_total_tx TEXT,net_total_rx TEXT,tcp INTEGER,udp INTEGER,uptime REAL);
  CREATE INDEX IF NOT EXISTS metrics_node_ts ON metrics(node,ts);
@@ -65,31 +78,51 @@ func (s *Store) Migrate() error {
  CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY,ts INTEGER NOT NULL,node TEXT NOT NULL REFERENCES nodes(name),kind TEXT NOT NULL,detail TEXT NOT NULL,notified INTEGER NOT NULL DEFAULT 0);
  CREATE INDEX IF NOT EXISTS events_node_ts ON events(node,ts);
  CREATE TABLE IF NOT EXISTS known_ips(node TEXT NOT NULL REFERENCES nodes(name),from_ip TEXT NOT NULL,PRIMARY KEY(node,from_ip));
+ INSERT OR IGNORE INTO known_ips(node,from_ip) SELECT node,from_ip FROM logins WHERE known=1;
  CREATE TABLE IF NOT EXISTS resource_alerts(node TEXT NOT NULL REFERENCES nodes(name),resource TEXT NOT NULL,active INTEGER NOT NULL,last_seen INTEGER NOT NULL,PRIMARY KEY(node,resource));
  CREATE TABLE IF NOT EXISTS event_deliveries(event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,notifier TEXT NOT NULL,PRIMARY KEY(event_id,notifier));
- PRAGMA user_version=2;`)
-	return e
+`)
+		if e != nil {
+			return e
+		}
+		_, e = tx.Exec(`ALTER TABLE nodes ADD COLUMN note TEXT NOT NULL DEFAULT '';
+ ALTER TABLE nodes ADD COLUMN os TEXT NOT NULL DEFAULT '';
+ ALTER TABLE nodes ADD COLUMN arch TEXT NOT NULL DEFAULT '';
+ ALTER TABLE nodes ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0;
+ ALTER TABLE events ADD COLUMN acked_at INTEGER NOT NULL DEFAULT 0;
+ CREATE TABLE admins(user TEXT PRIMARY KEY,pw_hash TEXT NOT NULL,totp_secret TEXT NOT NULL,totp_last_step INTEGER NOT NULL DEFAULT -1,created_at INTEGER NOT NULL,last_login INTEGER NOT NULL DEFAULT 0);
+ CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,user TEXT NOT NULL REFERENCES admins(user) ON DELETE CASCADE,csrf TEXT NOT NULL,created_at INTEGER NOT NULL,last_seen INTEGER NOT NULL,ip TEXT NOT NULL);
+ CREATE INDEX sessions_user ON sessions(user);
+ CREATE TABLE enroll_codes(code_hash TEXT PRIMARY KEY,name TEXT NOT NULL,note TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,pubkey TEXT NOT NULL DEFAULT '',used_at INTEGER NOT NULL DEFAULT 0);
+ CREATE TABLE audit_log(id INTEGER PRIMARY KEY,ts INTEGER NOT NULL,user TEXT NOT NULL,ip TEXT NOT NULL,action TEXT NOT NULL,detail TEXT NOT NULL);
+ PRAGMA user_version=3;`)
+		return e
+	})
 }
 func (s *Store) AddNode(name string, key ed25519.PublicKey, now time.Time) error {
+	return s.Transaction(func(tx *sql.Tx) error { return addNode(tx, name, key, "", now) })
+}
+
+func addNode(tx *sql.Tx, name string, key ed25519.PublicKey, note string, now time.Time) error {
 	if !proto.ValidNode(name) || len(key) != ed25519.PublicKeySize {
 		return fmt.Errorf("invalid node")
 	}
-	_, e := s.DB.Exec(`INSERT INTO nodes(name,pubkey,fingerprint,created_at) VALUES(?,?,?,?)`, name, []byte(key), proto.Fingerprint(key), now.Unix())
-	return e
+	_, err := tx.Exec(`INSERT INTO nodes(name,pubkey,fingerprint,created_at,note) VALUES(?,?,?,?,?)`, name, []byte(key), proto.Fingerprint(key), now.Unix(), note)
+	return err
 }
 
 type scanner interface{ Scan(...any) error }
 
 func scanNode(row scanner) (n Node, e error) {
 	var seq string
-	e = row.Scan(&n.Name, &n.Pubkey, &n.Fingerprint, &n.CreatedAt, &n.RevokedAt, &seq, &n.LastSeen, &n.LastIP, &n.BinHash)
+	e = row.Scan(&n.Name, &n.Pubkey, &n.Fingerprint, &n.CreatedAt, &n.RevokedAt, &seq, &n.LastSeen, &n.LastIP, &n.BinHash, &n.Note, &n.OS, &n.Arch, &n.MutedUntil)
 	if e == nil {
 		n.LastSeq, e = strconv.ParseUint(seq, 10, 64)
 	}
 	return
 }
 
-const columns = `name,pubkey,fingerprint,created_at,revoked_at,last_seq,last_seen,last_ip,bin_hash`
+const columns = `name,pubkey,fingerprint,created_at,revoked_at,last_seq,last_seen,last_ip,bin_hash,note,os,arch,muted_until`
 
 func (s *Store) Node(name string) (Node, error) {
 	return scanNode(s.DB.QueryRow(`SELECT `+columns+` FROM nodes WHERE name=?`, name))
@@ -165,7 +198,7 @@ func (s *Store) Accept(name string, seq uint64, now time.Time, ip string, r *pro
 				return e
 			}
 		}
-		_, e = tx.Exec(`UPDATE nodes SET last_seq=?,last_seen=?,last_ip=?,bin_hash=? WHERE name=?`, strconv.FormatUint(seq, 10), now.Unix(), ip, r.Bin, name)
+		_, e = tx.Exec(`UPDATE nodes SET last_seq=?,last_seen=?,last_ip=?,bin_hash=?,os=?,arch=? WHERE name=?`, strconv.FormatUint(seq, 10), now.Unix(), ip, r.Bin, r.OS[:min(len(r.OS), 32)], r.Arch[:min(len(r.Arch), 32)], name)
 		return e
 	})
 }
@@ -200,7 +233,15 @@ func (s *Store) Cleanup(now time.Time) error {
 				return e
 			}
 		}
-		return nil
+		_, e := tx.Exec(`DELETE FROM sessions WHERE last_seen<=? OR created_at<=?;`, now.Add(-12*time.Hour).Unix(), now.Add(-7*24*time.Hour).Unix())
+		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`DELETE FROM enroll_codes WHERE created_at<?`, now.Add(-24*time.Hour).Unix()); e != nil {
+			return e
+		}
+		_, e = tx.Exec(`DELETE FROM audit_log WHERE ts<?`, now.Add(-90*24*time.Hour).Unix())
+		return e
 	})
 }
 func (s *Store) RunCleanup(ctx context.Context) {

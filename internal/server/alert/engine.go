@@ -74,8 +74,10 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 				return err
 			}
 		}
-		if _, err = tx.Exec(`INSERT OR IGNORE INTO known_ips VALUES(?,?)`, n.Name, l.From); err != nil {
-			return err
+		if known != 0 {
+			if _, err = tx.Exec(`INSERT OR IGNORE INTO known_ips VALUES(?,?)`, n.Name, l.From); err != nil {
+				return err
+			}
 		}
 	}
 	for _, resource := range []struct {

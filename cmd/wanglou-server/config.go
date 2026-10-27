@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ const defaultConfig = "/etc/wanglou/server.toml"
 type config struct {
 	Database, Listen, TLSCert, TLSKey, WebhookURL, TelegramToken, TelegramChatID string
 	ListenPlain                                                                  bool
+	PanelListen, PublicIngestURL                                                 string
+	PanelCookieSecure                                                            bool
 	TrustedProxies                                                               []netip.Prefix
 	Alerts                                                                       alert.Config
 }
@@ -25,7 +28,7 @@ type config struct {
 // errors. Environment variables override the file, including empty strings.
 func loadConfig(path string) (config, error) { return loadConfigEnv(path, os.Environ()) }
 func loadConfigEnv(path string, environment []string) (config, error) {
-	c := config{Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", Alerts: alert.DefaultConfig()}
+	c := config{Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
 	apply := func(key, value string, env bool) (err error) {
 		stringValue := func() (string, error) {
 			if env {
@@ -36,6 +39,12 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 		switch key {
 		case "database":
 			c.Database, err = stringValue()
+		case "panel_listen":
+			c.PanelListen, err = stringValue()
+		case "public_ingest_url":
+			c.PublicIngestURL, err = stringValue()
+		case "panel_cookie_secure":
+			c.PanelCookieSecure, err = strconv.ParseBool(value)
 		case "listen":
 			c.Listen, err = stringValue()
 		case "tls_cert":
@@ -122,14 +131,31 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 	return c, nil
 }
 func (c config) validateTransport(insecure bool) error {
-	if insecure {
-		host, _, err := net.SplitHostPort(c.Listen)
-		if err != nil {
-			return err
+	if c.PanelListen != "" && c.PanelListen == c.Listen {
+		return fmt.Errorf("panel_listen must differ from listen")
+	}
+	if !insecure && !c.PanelCookieSecure {
+		return fmt.Errorf("panel_cookie_secure=false requires --insecure-http")
+	}
+	if c.PublicIngestURL != "" {
+		u, err := url.Parse(c.PublicIngestURL)
+		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(insecure && u.Scheme == "http")) {
+			return fmt.Errorf("public_ingest_url requires HTTPS")
 		}
-		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
-			return fmt.Errorf("--insecure-http must bind a loopback IP")
+	}
+	if insecure {
+		for _, listen := range []string{c.Listen, c.PanelListen} {
+			if listen == "" {
+				continue
+			}
+			host, _, err := net.SplitHostPort(listen)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if ip == nil || !ip.IsLoopback() {
+				return fmt.Errorf("--insecure-http must bind a loopback IP")
+			}
 		}
 	}
 	if !insecure && !c.ListenPlain && (c.TLSCert == "" || c.TLSKey == "") {
