@@ -167,8 +167,10 @@ unit enforces the specified sandbox, 24 MiB memory limit and 5% CPU quota; its
 only writable persistent directory is `/var/lib/wanglou` for sequence state.
 The server unit applies the same hardening, a 256 MiB memory limit and no CPU
 quota, with a writable state directory for SQLite. `wtmp` is optional: unreadable/missing logs yield an empty
-login list; no permissions escalation is attempted. Both Linux architectures
-use glibc's little-endian 384-byte wtmp ABI.
+login list; no permissions escalation is attempted. The wtmp record layout follows
+glibc for the build target: 384 bytes on amd64, 400 bytes (64-bit timestamps) on
+arm64. An unreadable or misaligned login cursor is replaced by a fresh baseline at
+the current end of wtmp.
 
 The receiver runs as a single process per database. SQLite uses WAL, bounded
 report writes, and transactions coupling replay state, telemetry and events.
@@ -430,7 +432,7 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 核对 `wanglou-agent fingerprint` 与页面分组显示的完整指纹，勾选一致后启用，
 然后启动 agent 的 `run` 服务。确认之前接收端始终拒收该节点的指标。
 本地 `init` 还需要 `--insecure-http`，自定义密钥路径时 `fingerprint` 需要 `--key`。
-静音只阻止通知发送，事件继续保存；吊销、备注、确认事件和标记常用 IP 只修改服务端数据库。
+静音只阻止通知发送，事件继续保存；某个通知渠道失败时按 30 秒起翻倍、最长 10 分钟退避重试，不影响其他渠道和后续事件，超过 24 小时仍未送达的事件不再发送；未配置任何渠道时事件只记录，之后配置渠道也不会补发历史。延迟送达的 Telegram 消息会附上事件发生时间。新登记的节点 10 分钟内未上报不算失联；吊销、备注、确认事件和标记常用 IP 只修改服务端数据库。
 历史图提供 1 小时、24 小时、7 天、30 天和 90 天范围，在 SQL 中分桶，最多 360 点；页面每 5 秒刷新，
 编辑表单时暂停刷新，禁用 JavaScript 仍可使用全部操作。
 
@@ -443,7 +445,7 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 
 在“续费与流量”中编辑节点的服务商、到期日、周期、价格、流量额度和通知规则。GB 按 10⁹ 字节计算，1000 GB 为 1 TB；可以选择上下行合计、仅出站、仅入站或两者较大值。首次上报只建立基线，之后服务端持续累加，agent 无需更改配置。用量与服务商后台不符时填写“校准本周期已用”，留空保留原值。
 
-手动续费后点击“已续费一期”，月份按月末截断。自动续费会在扣费前 3 天提醒，到期后第二天顺延；提醒日程显示近期记录和未来 14 天的可预见事项。日期提醒在本地 09:00 后检查，不补发错过的日期。未选择通知渠道时只记事件，续费和流量提醒不受告警静音影响。预测基于最近 3 个完整本地日；数据不足时不预测。
+手动续费后点击“已续费一期”，按保存到期日时的“日”顺延，遇到小月取当月最后一天（1 月 31 日 → 2 月 28 日 → 3 月 31 日）。自动续费会在扣费前 3 天提醒，到期后第二天顺延；提醒日程显示近期记录和未来 14 天的可预见事项。日期提醒在本地 09:00 后检查，不补发错过的日期。未选择通知渠道时只记事件，续费和流量提醒不受告警静音影响。预测基于最近 3 个完整本地日；数据不足时不预测。
 
 ## 静态公开状态页
 
@@ -459,7 +461,7 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 
 `heartbeat_url` / `WANGLOU_HEARTBEAT_URL` 可填外部心跳服务的 HTTPS 地址。服务端每 60 秒发送不带数据的 GET；只有离线检查和提醒检查在最近 2 分钟内都成功过、降采样任务在最近 5 分钟内成功过时才发送。总览显示最近成功时间或失败，不展示地址。请求超时 10 秒且不跟随重定向。
 
-`timezone` / `WANGLOU_TIMEZONE` 控制到期日、09:00 提醒、流量重置和每日可用率统计；默认 `Local`，Compose 默认 `UTC`。建议部署时明确设置，例如 `Asia/Shanghai`，避免主机和容器默认时区不同。IANA 时区数据已编入服务端。公开页生成时间按导出间隔截断。`public_url`、`heartbeat_url` 只有本地开发的 `--insecure-http` 模式允许 HTTP。
+`timezone` / `WANGLOU_TIMEZONE` 控制到期日、09:00 提醒、流量重置和每日可用率统计；默认 `Local`，Compose 默认 `UTC`。建议部署时明确设置，例如 `Asia/Shanghai`，避免主机和容器默认时区不同。面板和日志里的时间也按这个时区显示。IANA 时区数据已编入服务端。公开页生成时间按导出间隔截断。`public_url`、`heartbeat_url` 只有本地开发的 `--insecure-http` 模式允许 HTTP。
 
 
 ## 降采样与长期保留

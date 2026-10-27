@@ -20,7 +20,7 @@ func setupEngine(t *testing.T) (*Engine, time.Time) {
 	}
 	t.Cleanup(func() { s.Close() })
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
-	now := time.Unix(1700000000, 0)
+	now := time.Now().Truncate(time.Second)
 	if e = s.AddNode("node", pub, now); e != nil {
 		t.Fatal(e)
 	}
@@ -153,15 +153,55 @@ func TestOfflineRecovered(t *testing.T) {
 }
 func TestNeverReportedOffline(t *testing.T) {
 	e, now := setupEngine(t)
+	for _, elapsed := range []time.Duration{16 * time.Second, 10 * time.Minute, 10*time.Minute + time.Second, 11 * time.Minute} {
+		if err := e.CheckOffline(now.Add(elapsed)); err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if elapsed > 10*time.Minute {
+			want = 1
+		}
+		if count(t, e, "offline") != want {
+			t.Fatal(elapsed, "missing or duplicate never-seen event")
+		}
+	}
+	send(t, e, now.Add(12*time.Minute), sampleReport())
+	if count(t, e, "recovered") != 1 {
+		t.Fatal("recovered")
+	}
+}
+func TestReenabledNodeOfflineGrace(t *testing.T) {
+	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
 	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if count(t, e, "offline") != 1 {
-		t.Fatal("never-seen node")
+	if err := e.Store.Revoke("node", now); err != nil {
+		t.Fatal(err)
 	}
-	send(t, e, now.Add(17*time.Second), sampleReport())
-	if count(t, e, "recovered") != 1 {
-		t.Fatal("recovered")
+	key, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabledAt := now.Add(24 * time.Hour)
+	if err = e.Store.ConfirmEnrollment("node", "new", proto.PublicKeyLine(key, "node"), "", enabledAt, "admin", "192.0.2.1"); err != nil {
+		t.Fatal(err)
+	}
+	node, err := e.Store.Node("node")
+	if err != nil || node.LastSeen != 0 || node.CreatedAt != enabledAt.Unix() || node.LastSeq != 1 {
+		t.Fatal(node, err)
+	}
+	for _, elapsed := range []time.Duration{16 * time.Second, 10 * time.Minute, 10*time.Minute + time.Second, 11 * time.Minute} {
+		if err = e.CheckOffline(enabledAt.Add(elapsed)); err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if elapsed > 10*time.Minute {
+			want = 2
+		}
+		if count(t, e, "offline") != want {
+			t.Fatal(elapsed, "reenabled grace")
+		}
 	}
 }
 func TestLoginBaselineNewIPAndBinary(t *testing.T) {
@@ -260,6 +300,7 @@ func TestResourceQueryExcludesOldHistory(t *testing.T) {
 
 func TestChineseEventDetails(t *testing.T) {
 	e, now := setupEngine(t)
+	now = now.Add(10 * time.Minute)
 	e.Store.Location = time.FixedZone("test", 8*3600)
 	assertDetail := func(kind, want string) {
 		t.Helper()
@@ -300,4 +341,29 @@ func TestChineseEventDetails(t *testing.T) {
 		t.Fatal(detail, err)
 	}
 	assertDetail("resource", "磁盘超过 96%，已持续 1 分钟")
+}
+
+func TestReenabledReportIgnoresOldOffline(t *testing.T) {
+	e, now := setupEngine(t)
+	if err := e.CheckOffline(now.Add(11 * time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, e, "offline") != 1 {
+		t.Fatal("missing old offline")
+	}
+	if err := e.Store.Revoke("node", now.Add(12*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	key, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabledAt := now.Add(time.Hour)
+	if err = e.Store.ConfirmEnrollment("node", "", proto.PublicKeyLine(key, "node"), "", enabledAt, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	send(t, e, enabledAt.Add(time.Second), sampleReport())
+	if count(t, e, "recovered") != 0 {
+		t.Fatal("recovered from previous registration")
+	}
 }

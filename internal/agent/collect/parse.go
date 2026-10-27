@@ -179,11 +179,16 @@ func decodeWTMP(b []byte) (proto.Login, bool) {
 		return proto.Login{}, false
 	}
 	ts := int64(int32(binary.LittleEndian.Uint32(b[340:344])))
+	addrOffset := 348
+	if wtmpRecordSize == 400 {
+		ts = int64(binary.LittleEndian.Uint64(b[344:352]))
+		addrOffset = 360
+	}
 	user := strings.TrimRight(string(b[44:76]), "\x00")
 	host := strings.TrimRight(string(b[76:332]), "\x00")
 	ip := net.ParseIP(host)
 	if ip == nil {
-		addr := b[348:364]
+		addr := b[addrOffset : addrOffset+16]
 		if binary.LittleEndian.Uint32(addr[4:8]) == 0 && binary.LittleEndian.Uint64(addr[8:]) == 0 {
 			ip = net.IP(addr[:4])
 		} else {

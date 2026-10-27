@@ -96,6 +96,9 @@ func (l *Loop) Status(now time.Time) string {
 	if !l.down.IsZero() {
 		return fmt.Sprintf("%s · 不可达 · %d 分钟", u.Host, max(0, int(now.Sub(l.down).Minutes())))
 	}
+	if l.failures > 0 {
+		return fmt.Sprintf("%s · 连续 %d 次检查失败", u.Host, l.failures)
+	}
 	if l.success.IsZero() {
 		return u.Host + " · 等待首次检查"
 	}

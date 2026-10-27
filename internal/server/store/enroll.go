@@ -70,7 +70,7 @@ func (s *Store) ConfirmEnrollment(name, note, line, codeHash string, now time.Ti
 			if err := checkRevokedKey(tx, proto.Fingerprint(key)); err != nil {
 				return err
 			}
-			if _, err = tx.Exec(`UPDATE nodes SET pubkey=?,fingerprint=?,revoked_at=0,note=? WHERE name=?`, []byte(key), proto.Fingerprint(key), note, name); err != nil {
+			if _, err = tx.Exec(`UPDATE nodes SET pubkey=?,fingerprint=?,revoked_at=0,note=?,last_seen=0,created_at=? WHERE name=?`, []byte(key), proto.Fingerprint(key), note, now.Unix(), name); err != nil {
 				return err
 			}
 			action = "node_reenable"

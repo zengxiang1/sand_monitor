@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+	"wanglou/internal/server/format"
 	"wanglou/internal/server/store"
 )
 
@@ -151,6 +152,19 @@ type Net struct {
 	TX float64 `json:"tx"`
 	RX float64 `json:"rx"`
 }
+
+func (n Net) MarshalJSON() ([]byte, error) {
+	sig := func(n float64) float64 {
+		if n <= 0 {
+			return 0
+		}
+		rounded, _ := strconv.ParseFloat(strconv.FormatFloat(n, 'g', 2, 64), 64)
+		return rounded
+	}
+	type netJSON Net
+	return json.Marshal(netJSON{sig(n.TX), sig(n.RX)})
+}
+
 type Day struct {
 	Date  string `json:"date"`
 	State string `json:"state"`
@@ -207,13 +221,6 @@ func Build(s *store.Store, c PublicConfig, now time.Time) (Document, error) {
 		}
 		return int(math.Round(min(100, max(0, used/total*100))))
 	}
-	sig := func(n float64) float64 {
-		if n <= 0 {
-			return 0
-		}
-		rounded, _ := strconv.ParseFloat(strconv.FormatFloat(n, 'g', 2, 64), 64)
-		return rounded
-	}
 	for _, selection := range c.Nodes {
 		if !selection.Public {
 			continue
@@ -260,7 +267,7 @@ func Build(s *store.Store, c PublicConfig, now time.Time) (Document, error) {
 			n.Usage = &Usage{pct(cpu, 100), pct(mu, mt), pct(du, dt)}
 		}
 		if c.Fields.Net && !offline {
-			n.Net = &Net{sig(tx), sig(rx)}
+			n.Net = &Net{tx, rx}
 		}
 		if c.Fields.Uptime && !offline {
 			days := int(up / 86400)
@@ -302,16 +309,12 @@ var tmpl = template.Must(template.New("status.html").Funcs(template.FuncMap{
 		return "正常"
 	},
 	"annStatus": AnnouncementStatus,
-	"rate": func(n float64) string {
-		unit := "B/s"
-		for _, u := range []string{"KB/s", "MB/s", "GB/s"} {
-			if n < 1000 {
-				break
-			}
-			n /= 1000
-			unit = u
+	"rate":      format.Rate,
+	"uptime": func(days int) string {
+		if days == 0 {
+			return "已运行不到 1 天"
 		}
-		return strconv.FormatFloat(n, 'g', 2, 64) + " " + unit
+		return "已运行 " + strconv.Itoa(days) + " 天"
 	},
 	"barX": func(i int) int { return i * 10 },
 	"dayTitle": func(d Day) string {

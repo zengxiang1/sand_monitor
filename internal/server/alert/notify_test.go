@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 	"wanglou/internal/server/store"
 	"wanglou/internal/testutil"
@@ -47,6 +49,18 @@ func TestWebhookAndTelegram(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatal(calls.Load())
 	}
+	var text string
+	late, lateClient := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		text = payload["text"]
+		w.WriteHeader(204)
+	}))
+	loc := time.FixedZone("CST", 8*3600)
+	event.Time = time.Date(2026, 1, 2, 3, 4, 0, 0, loc).Unix()
+	if e := (Telegram{Token: "token", ChatID: "123", BaseURL: late.URL, Client: lateClient, Location: loc}).Notify(context.Background(), event); e != nil || text != "望楼 · node · 失联：从未上报（发生于 01-02 03:04）" {
+		t.Fatal(text, e)
+	}
 }
 
 type notifyFunc func(context.Context, store.Event) error
@@ -54,8 +68,9 @@ type notifyFunc func(context.Context, store.Event) error
 func (f notifyFunc) Kind() string                                  { return "webhook" }
 func (f notifyFunc) ID() string                                    { return "test" }
 func (f notifyFunc) Notify(c context.Context, e store.Event) error { return f(c, e) }
-func TestRetryThreeTimesAndMark(t *testing.T) {
+func TestSingleAttemptAndMarkAfterRetry(t *testing.T) {
 	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
 	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -64,15 +79,23 @@ func TestRetryThreeTimesAndMark(t *testing.T) {
 		t.Fatal(events, err)
 	}
 	var calls int
-	d := Dispatcher{Store: e.Store, RetryDelay: time.Nanosecond, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error {
+	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error {
 		calls++
 		if calls < 4 {
 			return errors.New("temporary")
 		}
 		return nil
 	})}}
-	if err = d.Deliver(context.Background(), events[0]); err != nil || calls != 4 {
-		t.Fatal(calls, err)
+	for attempt := 1; attempt <= 4; attempt++ {
+		if attempt > 1 {
+			d.mu.Lock()
+			d.retries[deliveryKey{events[0].ID, "test"}] = deliveryRetry{}
+			d.mu.Unlock()
+		}
+		err = d.Deliver(context.Background(), events[0])
+		if calls != attempt || (err == nil) != (attempt == 4) {
+			t.Fatal(calls, err)
+		}
 	}
 	pending, err := e.Store.Pending(10)
 	if err != nil || len(pending) != 0 {
@@ -81,13 +104,14 @@ func TestRetryThreeTimesAndMark(t *testing.T) {
 }
 func TestFailedNotificationRemainsPendingAndCancellation(t *testing.T) {
 	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
 	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	events, _ := e.Store.Pending(1)
 	calls := 0
-	d := Dispatcher{Store: e.Store, RetryDelay: time.Nanosecond, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") })}}
-	if err := d.Deliver(context.Background(), events[0]); err == nil || calls != 4 {
+	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") })}}
+	if err := d.Deliver(context.Background(), events[0]); err == nil || calls != 1 {
 		t.Fatal(calls, err)
 	}
 	pending, _ := e.Store.Pending(1)
@@ -102,6 +126,7 @@ func TestFailedNotificationRemainsPendingAndCancellation(t *testing.T) {
 }
 func TestNotificationsDoNotBlockReports(t *testing.T) {
 	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
 	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -150,6 +175,7 @@ type namedNotifier struct {
 func (n namedNotifier) ID() string { return n.name }
 func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
 	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -167,8 +193,8 @@ func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 		}
 		return nil
 	}}
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{a, b}, RetryDelay: time.Nanosecond}
-	if err = d.Deliver(context.Background(), events[0]); err == nil || first != 1 || second != 4 {
+	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{a, b}}
+	if err = d.Deliver(context.Background(), events[0]); err == nil || first != 1 || second != 1 {
 		t.Fatal(first, second, err)
 	}
 	// Reopen SQLite and recreate the dispatcher in reversed order: receipts
@@ -187,12 +213,12 @@ func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 	}
 	defer reopened.Close()
 	e.Store = reopened
-	d = Dispatcher{Store: e.Store, Notifiers: []Notifier{b, a}, RetryDelay: time.Nanosecond}
+	d = Dispatcher{Store: e.Store, Notifiers: []Notifier{b, a}}
 	fail = false
-	if err = d.Deliver(context.Background(), events[0]); err != nil || first != 1 || second != 5 {
+	if err = d.Deliver(context.Background(), events[0]); err != nil || first != 1 || second != 2 {
 		t.Fatal(first, second, err)
 	}
-	if err = d.Deliver(context.Background(), events[0]); err != nil || first != 1 || second != 5 {
+	if err = d.Deliver(context.Background(), events[0]); err != nil || first != 1 || second != 2 {
 		t.Fatal("redelivered completed event", first, second, err)
 	}
 	pending, err := e.Store.Pending(1)
@@ -214,6 +240,7 @@ func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 
 func TestMutedEventsAreRecordedAndProcessed(t *testing.T) {
 	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
 	if _, err := e.Store.DB.Exec(`UPDATE nodes SET muted_until=? WHERE name='node'`, now.Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
@@ -259,11 +286,13 @@ func (n channelNotifier) Kind() string { return n.channel }
 func (n channelNotifier) ID() string   { return n.channel }
 func TestBillingTrafficTargetsAndMute(t *testing.T) {
 	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
 	if _, err := e.Store.DB.Exec(`UPDATE nodes SET muted_until=?`, time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	calls := map[string]int{}
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{channelNotifier{"telegram", func(context.Context, store.Event) error { calls["telegram"]++; return nil }}, channelNotifier{"webhook", func(context.Context, store.Event) error { calls["webhook"]++; return nil }}}}
+	var mu sync.Mutex
+	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{channelNotifier{"telegram", func(context.Context, store.Event) error { mu.Lock(); calls["telegram"]++; mu.Unlock(); return nil }}, channelNotifier{"webhook", func(context.Context, store.Event) error { mu.Lock(); calls["webhook"]++; mu.Unlock(); return nil }}}}
 	for _, kind := range []string{"billing", "traffic"} {
 		result, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail,targets) VALUES(?,'node',?,'','telegram')`, now.Unix(), kind)
 		if err != nil {
@@ -295,5 +324,153 @@ func TestBillingTrafficTargetsAndMute(t *testing.T) {
 	id, _ = result.LastInsertId()
 	if err = d.Deliver(context.Background(), store.Event{ID: id, Node: "node", Time: now.Unix(), Kind: "offline"}); err != nil || calls["telegram"] != 3 || calls["webhook"] != 1 {
 		t.Fatal(calls, err)
+	}
+}
+
+func TestDispatcherBackoffDoesNotStarveNewEvents(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		e, _ := setupEngine(t)
+		var failed, healthy atomic.Int32
+		d := Dispatcher{Store: e.Store, Notifiers: []Notifier{
+			namedNotifier{"broken", func(context.Context, store.Event) error { failed.Add(1); return errors.New("always fails") }},
+			namedNotifier{"healthy", func(context.Context, store.Event) error { healthy.Add(1); return nil }},
+		}}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); d.Run(ctx) }()
+		defer func() { cancel(); <-done }()
+		for i := range 40 {
+			if _, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail) VALUES(?,'node','offline','test')`, time.Now().Unix()); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(time.Second)
+			synctest.Wait()
+			if healthy.Load() != int32(i+1) {
+				t.Fatal("new event starved", i, healthy.Load())
+			}
+		}
+		if failed.Load() != 50 {
+			t.Fatal("expected 40 first attempts and 10 retries", failed.Load())
+		}
+		for range 20 {
+			time.Sleep(time.Second)
+			synctest.Wait()
+		}
+		if failed.Load() != 70 || healthy.Load() != 40 {
+			t.Fatal("backoff or duplicate healthy delivery", failed.Load(), healthy.Load())
+		}
+		for range 30 {
+			time.Sleep(time.Second)
+			synctest.Wait()
+		}
+		if failed.Load() != 81 {
+			t.Fatal("retry should double to 60 seconds", failed.Load())
+		}
+		pending, err := e.Store.Pending(100)
+		if err != nil || len(pending) != 40 {
+			t.Fatal(pending, err)
+		}
+	})
+}
+func TestDispatcherSlowChannelDoesNotDelayOthers(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		e, _ := setupEngine(t)
+		var healthy atomic.Int32
+		d := Dispatcher{Store: e.Store, Notifiers: []Notifier{
+			namedNotifier{"slow", func(ctx context.Context, _ store.Event) error { <-ctx.Done(); return ctx.Err() }},
+			namedNotifier{"healthy", func(context.Context, store.Event) error { healthy.Add(1); return nil }},
+		}}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); d.Run(ctx) }()
+		defer func() { cancel(); <-done }()
+		for range 40 {
+			if _, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail) VALUES(?,'node','offline','slow')`, time.Now().Unix()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		time.Sleep(time.Second)
+		synctest.Wait()
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if healthy.Load() != 40 {
+			t.Fatal("slow channel blocked new events", healthy.Load())
+		}
+	})
+}
+func TestDispatcherBackoffCap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		e, _ := setupEngine(t)
+		if _, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail) VALUES(?,'node','offline','test')`, time.Now().Unix()); err != nil {
+			t.Fatal(err)
+		}
+		events, err := e.Store.Pending(1)
+		if err != nil || len(events) != 1 {
+			t.Fatal(events, err)
+		}
+		calls := 0
+		d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") })}}
+		for i, delay := range []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 10 * time.Minute, 10 * time.Minute} {
+			if err = d.Deliver(context.Background(), events[0]); err == nil || calls != i+1 {
+				t.Fatal(calls, err)
+			}
+			for range 3 {
+				_ = d.Deliver(context.Background(), events[0])
+			}
+			if calls != i+1 {
+				t.Fatal("retried during backoff", calls)
+			}
+			time.Sleep(delay - time.Nanosecond)
+			_ = d.Deliver(context.Background(), events[0])
+			if calls != i+1 {
+				t.Fatal("retried early", calls)
+			}
+			time.Sleep(time.Nanosecond)
+		}
+	})
+}
+func TestDispatcherExpiresAndProcessesWithoutChannels(t *testing.T) {
+	for _, noChannels := range []bool{false, true} {
+		e, _ := setupEngine(t)
+		at := time.Now()
+		if !noChannels {
+			at = at.Add(-24*time.Hour - time.Second)
+		}
+		result, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail) VALUES(?,'node','offline','retained')`, at.Unix())
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := result.LastInsertId()
+		var calls atomic.Int32
+		d := Dispatcher{Store: e.Store}
+		if !noChannels {
+			d.Notifiers = []Notifier{notifyFunc(func(context.Context, store.Event) error { calls.Add(1); return nil })}
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); d.Run(ctx) }()
+		deadline := time.After(2 * time.Second)
+		for {
+			pending, err := e.Store.Pending(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pending) == 0 {
+				break
+			}
+			select {
+			case <-deadline:
+				cancel()
+				<-done
+				t.Fatal("event not processed")
+			case <-time.After(time.Millisecond):
+			}
+		}
+		cancel()
+		<-done
+		var detail string
+		if err = e.Store.DB.QueryRow(`SELECT detail FROM events WHERE id=?`, id).Scan(&detail); err != nil || detail != "retained" || calls.Load() != 0 {
+			t.Fatal(detail, calls.Load(), err)
+		}
 	}
 }

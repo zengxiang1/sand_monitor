@@ -10,8 +10,8 @@ func TestFormatRate(t *testing.T) {
 		value float64
 		want  string
 	}{
-		{0, "0.0 B/s"}, {12.34, "12.3 B/s"}, {1023, "1023.0 B/s"}, {1024, "1.0 KB/s"}, {1536, "1.5 KB/s"},
-		{1024 * 1024, "1.0 MB/s"}, {3.5 * 1024 * 1024, "3.5 MB/s"}, {1024 * 1024 * 1024, "1.0 GB/s"}, {2.5 * 1024 * 1024 * 1024, "2.5 GB/s"},
+		{440, "440 B/s"}, {999, "999 B/s"}, {13 * 1024, "13 KB/s"}, {0, "0 B/s"}, {12.34, "12 B/s"}, {1023, "1023 B/s"}, {1024, "1 KB/s"}, {1536, "1.5 KB/s"},
+		{1024 * 1024, "1 MB/s"}, {3.5 * 1024 * 1024, "3.5 MB/s"}, {1024 * 1024 * 1024, "1 GB/s"}, {2.5 * 1024 * 1024 * 1024, "2.5 GB/s"},
 	} {
 		if got := formatRate(tc.value); got != tc.want {
 			t.Errorf("%g: got %q, want %q", tc.value, got, tc.want)
@@ -67,11 +67,29 @@ func TestPageMetricFormatting(t *testing.T) {
 				}
 			}
 		} else {
-			for _, want := range []string{"0.5 / 2.0 GiB", "21 天 3 小时", "3.5 MB/s", "1.8 MB/s", "0.0 B/s"} {
+			for _, want := range []string{"0.5 / 2.0 GiB", "21 天 3 小时", "3.5 MB/s", "1.8 MB/s", "0 B/s"} {
 				if !strings.Contains(w.Body.String(), want) {
 					t.Fatal("node metric or chart label missing", want)
 				}
 			}
+		}
+	}
+}
+
+func TestNodeTitleSeparators(t *testing.T) {
+	f := setup(t)
+	for _, tc := range []struct{ note, ip, want string }{
+		{"", "", `class="muted mono">每 `},
+		{"", "192.0.2.1", `class="muted mono">192.0.2.1 · 每 `},
+		{"备注", "", `class="muted mono">备注 · 每 `},
+		{"备注", "192.0.2.1", `class="muted mono">备注 · 192.0.2.1 · 每 `},
+	} {
+		if _, err := f.s.DB.Exec(`UPDATE nodes SET note=?,last_ip=? WHERE name='node'`, tc.note, tc.ip); err != nil {
+			t.Fatal(err)
+		}
+		w := f.request("GET", "/nodes/node", nil, true)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), tc.want) {
+			t.Fatal(w.Code, w.Body.String())
 		}
 	}
 }

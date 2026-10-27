@@ -67,7 +67,7 @@ func (s *Store) Migrate() error {
 		if e := tx.QueryRow(`PRAGMA user_version`).Scan(&version); e != nil {
 			return e
 		}
-		if version > 5 {
+		if version > 6 {
 			return fmt.Errorf("unsupported schema version %d", version)
 		}
 		if version < 3 {
@@ -109,6 +109,13 @@ func (s *Store) Migrate() error {
 		}
 		if version < 5 {
 			if err := migrateRollup(tx); err != nil {
+				return err
+			}
+		}
+		if version < 6 {
+			if _, err := tx.Exec(`ALTER TABLE billing ADD COLUMN anchor_day INTEGER NOT NULL DEFAULT 1 CHECK(anchor_day BETWEEN 1 AND 31);
+ UPDATE billing SET anchor_day=CAST(substr(expiry,9,2) AS INTEGER) WHERE expiry<>'';
+ PRAGMA user_version=6;`); err != nil {
 				return err
 			}
 		}
@@ -234,8 +241,12 @@ func AddEvent(tx *sql.Tx, now time.Time, node, kind, detail string) error {
 	_, e := tx.Exec(`INSERT INTO events(ts,node,kind,detail) VALUES(?,?,?,?)`, now.Unix(), node, kind, detail)
 	return e
 }
-func (s *Store) Pending(limit int) ([]Event, error) {
-	rows, e := s.DB.Query(`SELECT id,ts,node,kind,detail,notified,targets FROM events WHERE notified=0 ORDER BY id LIMIT ?`, limit)
+func (s *Store) Pending(limit int, after ...int64) ([]Event, error) {
+	var cursor int64
+	if len(after) > 0 {
+		cursor = after[0]
+	}
+	rows, e := s.DB.Query(`SELECT id,ts,node,kind,detail,notified,targets FROM events WHERE notified=0 AND id>? ORDER BY id LIMIT ?`, cursor, limit)
 	if e != nil {
 		return nil, e
 	}

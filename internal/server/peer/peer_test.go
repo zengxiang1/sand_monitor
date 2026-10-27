@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -60,6 +61,9 @@ func TestPeerTransitionsAndRedirects(t *testing.T) {
 			l.Check(context.Background(), now.Add(time.Duration(i+1)*30*time.Second))
 			if good.calls != 0 || bad.calls != 0 {
 				t.Fatal("early alarm")
+			}
+			if got := l.Status(now); !strings.Contains(got, fmt.Sprintf("连续 %d 次检查失败", i+1)) {
+				t.Fatal(got)
 			}
 		}
 		status = 503

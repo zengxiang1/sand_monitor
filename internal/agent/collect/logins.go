@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
 	"wanglou/internal/proto"
 )
 
-const wtmpRecordSize = 384
 const MaxLogins = 32
 
 // The acknowledged offset never advances before a successful report. Seen
@@ -41,11 +41,9 @@ func newLoginReader(path, statePath string) (*loginReader, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = json.Unmarshal(data, &r.cursor); err != nil {
-		return nil, fmt.Errorf("invalid login cursor: %w", err)
-	}
-	if !r.cursor.Initialized || r.cursor.Offset < 0 || r.cursor.Offset%wtmpRecordSize != 0 || r.cursor.Timestamp < 0 {
-		return nil, fmt.Errorf("invalid login cursor")
+	if err = json.Unmarshal(data, &r.cursor); err != nil || !r.cursor.Initialized || r.cursor.Offset < 0 || r.cursor.Offset%wtmpRecordSize != 0 || r.cursor.Timestamp < 0 {
+		r.cursor = loginCursor{}
+		log.Printf("invalid login cursor %s: rebuilding baseline at current wtmp end", statePath)
 	}
 	return r, nil
 }

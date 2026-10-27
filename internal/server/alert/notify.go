@@ -48,6 +48,7 @@ type Telegram struct {
 	Instance      string
 	Client        *http.Client
 	BaseURL       string
+	Location      *time.Location
 }
 
 func (t Telegram) Kind() string { return "telegram" }
@@ -66,6 +67,14 @@ func (t Telegram) Notify(ctx context.Context, e store.Event) error {
 	text := fmt.Sprintf("%s · %s · %s：%s", instance, e.Node, eventtext.Kind(e.Kind), e.Detail)
 	if e.Kind == "peer" {
 		text = instance + " · " + e.Detail
+	}
+	// Delayed deliveries may arrive out of order, so they carry the event time.
+	if e.Time > 0 && time.Now().Unix()-e.Time > 60 {
+		loc := t.Location
+		if loc == nil {
+			loc = time.Local
+		}
+		text += "（发生于 " + time.Unix(e.Time, 0).In(loc).Format("01-02 15:04") + "）"
 	}
 	return post(ctx, t.Client, base+"/bot"+url.PathEscape(t.Token)+"/sendMessage", map[string]string{"chat_id": t.ChatID, "text": text})
 }
@@ -94,99 +103,164 @@ func post(ctx context.Context, client *http.Client, target string, payload any) 
 	return nil
 }
 
-// Dispatcher uses the events table as a durable queue. No network call occurs
-// on the ingest goroutine; a batch remains pending after exhausted retries.
+// Dispatcher uses the events table as a durable queue, with per-channel receipts.
 type Dispatcher struct {
-	mu         sync.Mutex
-	Store      *store.Store
-	Scope      string
-	Notifiers  []Notifier
-	RetryDelay time.Duration
+	mu        sync.Mutex
+	Store     *store.Store
+	Scope     string
+	Notifiers []Notifier
+	retries   map[deliveryKey]deliveryRetry
+	active    map[int64]bool
+}
+type deliveryKey struct {
+	event   int64
+	channel string
+}
+type deliveryRetry struct {
+	next  time.Time
+	delay time.Duration
 }
 
-func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.Scope == "security" && !slices.Contains([]string{"offline", "recovered", "login_new_ip", "bin_changed"}, event.Kind) {
-		return d.Store.MarkNotified(event.ID)
-	}
-	node, err := d.Store.Node(event.Node)
-	if err != nil {
-		return err
-	}
-	if event.Notified {
-		return nil
-	}
-	if event.Kind != "billing" && event.Kind != "traffic" && (node.MutedUntil > event.Time || node.MutedUntil > time.Now().Unix()) {
-		return d.Store.MarkNotified(event.ID)
-	}
-	var failures []error
+func (d *Dispatcher) pendingNotifiers(event store.Event) ([]Notifier, error) {
+	pending := []Notifier{}
 	for _, n := range d.Notifiers {
 		if event.Targets != "" && !slices.Contains(strings.Split(event.Targets, ","), n.Kind()) {
 			continue
 		}
 		delivered, err := d.Store.Delivered(event.ID, n.ID())
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if delivered {
-			continue
+		if !delivered {
+			pending = append(pending, n)
 		}
-		err = nil
-		for attempt := 0; attempt < 4; attempt++ {
-			if ctx.Err() != nil {
-				return ctx.Err()
+	}
+	return pending, nil
+}
+func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
+	d.mu.Lock()
+	if d.active[event.ID] {
+		d.mu.Unlock()
+		return nil
+	}
+	if d.active == nil {
+		d.active = map[int64]bool{}
+		d.retries = map[deliveryKey]deliveryRetry{}
+	}
+	d.active[event.ID] = true
+	d.mu.Unlock()
+	defer func() { d.mu.Lock(); delete(d.active, event.ID); d.mu.Unlock() }()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if event.Notified {
+		return nil
+	}
+	if len(d.Notifiers) == 0 || d.Scope == "security" && !slices.Contains([]string{"offline", "recovered", "login_new_ip", "bin_changed"}, event.Kind) {
+		return d.Store.MarkNotified(event.ID)
+	}
+	node, err := d.Store.Node(event.Node)
+	if err != nil {
+		return err
+	}
+	if event.Kind != "billing" && event.Kind != "traffic" && (node.MutedUntil > event.Time || node.MutedUntil > time.Now().Unix()) {
+		return d.Store.MarkNotified(event.ID)
+	}
+	pending, err := d.pendingNotifiers(event)
+	if err != nil {
+		return err
+	}
+	results := make(chan error, len(pending))
+	for _, n := range pending {
+		go func() {
+			key := deliveryKey{event.ID, n.ID()}
+			d.mu.Lock()
+			retry := d.retries[key]
+			d.mu.Unlock()
+			if time.Now().Unix()-event.Time > 24*60*60 {
+				log.Printf("notification expired: event %d channel %s", event.ID, n.ID())
+				results <- nil
+				return
+			}
+			if time.Now().Before(retry.next) {
+				results <- errors.New("notification in backoff")
+				return
 			}
 			attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err = n.Notify(attemptCtx, event)
+			err := n.Notify(attemptCtx, event)
 			cancel()
-			if err == nil {
-				break
+			if err != nil {
+				delay := min(10*time.Minute, max(30*time.Second, retry.delay*2))
+				d.mu.Lock()
+				d.retries[key] = deliveryRetry{time.Now().Add(delay), delay}
+				d.mu.Unlock()
+				results <- err
+				return
 			}
-			if attempt < 3 {
-				delay := d.RetryDelay
-				if delay <= 0 {
-					delay = time.Second
-				}
-				timer := time.NewTimer(delay * time.Duration(1<<attempt))
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return ctx.Err()
-				case <-timer.C:
-				}
-			}
-		}
-		if err != nil {
+			results <- d.Store.MarkDelivered(event.ID, n.ID())
+		}()
+	}
+	var failures []error
+	for range pending {
+		if err := <-results; err != nil {
 			failures = append(failures, err)
-			continue
-		}
-		if err = d.Store.MarkDelivered(event.ID, n.ID()); err != nil {
-			return err
 		}
 	}
 	if len(failures) > 0 {
 		return errors.Join(failures...)
 	}
-	if len(d.Notifiers) == 0 {
-		return nil
+	if err = d.Store.MarkNotified(event.ID); err == nil {
+		d.mu.Lock()
+		for _, n := range d.Notifiers {
+			delete(d.retries, deliveryKey{event.ID, n.ID()})
+		}
+		d.mu.Unlock()
 	}
-	return d.Store.MarkNotified(event.ID)
+	return err
 }
 func (d *Dispatcher) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for {
-		if len(d.Notifiers) > 0 || d.Scope == "security" {
-			events, e := d.Store.Pending(32)
-			if e != nil {
-				log.Printf("notification queue: %v", e)
-			} else {
-				for _, event := range events {
-					if e = d.Deliver(ctx, event); e != nil {
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	for ctx.Err() == nil {
+		var after int64
+		launched := 0
+		for launched < 32 && ctx.Err() == nil {
+			events, err := d.Store.Pending(32, after)
+			if err != nil {
+				log.Printf("notification queue: %v", err)
+				break
+			}
+			for _, event := range events {
+				after = event.ID
+				pending, err := d.pendingNotifiers(event)
+				if err != nil {
+					log.Printf("notification queue: %v", err)
+					continue
+				}
+				d.mu.Lock()
+				ready := len(pending) == 0 || time.Now().Unix()-event.Time > 24*60*60
+				for _, n := range pending {
+					ready = ready || !time.Now().Before(d.retries[deliveryKey{event.ID, n.ID()}].next)
+				}
+				ready = ready && !d.active[event.ID]
+				d.mu.Unlock()
+				if !ready {
+					continue
+				}
+				workers.Go(func() {
+					if err := d.Deliver(ctx, event); err != nil && ctx.Err() == nil {
 						log.Printf("notification failed for event %d", event.ID)
 					}
+				})
+				launched++
+				if launched == 32 {
+					break
 				}
+			}
+			if len(events) < 32 {
+				break
 			}
 		}
 		select {

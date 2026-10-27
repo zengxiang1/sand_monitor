@@ -313,3 +313,36 @@ func TestFieldSwitchesIndependentlyAndDisplayOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicRateAndShortUptime(t *testing.T) {
+	s, c, now := publicFixture(t)
+	for _, tc := range []struct {
+		tx, rx float64
+		up     int
+		want   []string
+	}{
+		{440, 999, 0, []string{"440 B/s", "999 B/s", "已运行不到 1 天"}},
+		{13 * 1024, 1.2 * 1024 * 1024, 86400, []string{"13 KB/s", "1.2 MB/s", "已运行 1 天"}},
+	} {
+		if _, err := s.DB.Exec(`UPDATE metrics SET net_tx=?,net_rx=?,uptime=?`, tc.tx, tc.rx, tc.up); err != nil {
+			t.Fatal(err)
+		}
+		d, err := Build(s, c, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := Render(d, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(string(raw), want) {
+				t.Fatal("missing", want, string(raw))
+			}
+		}
+		data, err := json.Marshal(d)
+		if err != nil || !strings.Contains(string(data), `"uptime_days":`) {
+			t.Fatal(string(data), err)
+		}
+	}
+}

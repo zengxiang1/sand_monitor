@@ -26,7 +26,7 @@ func TestV4MigrationAndRollupValues(t *testing.T) {
 	if err := s.DB.QueryRow(`PRAGMA database_list`).Scan(&fileNumber, &name, &path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB.Exec(`DROP TABLE metrics_1m;DROP TABLE metrics_1h;PRAGMA user_version=4;INSERT INTO events(ts,node,kind,detail) VALUES(1,'node','offline','last seen 0')`); err != nil {
+	if _, err := s.DB.Exec(`DROP TABLE metrics_1m;DROP TABLE metrics_1h;ALTER TABLE billing DROP COLUMN anchor_day;PRAGMA user_version=4;INSERT INTO events(ts,node,kind,detail) VALUES(1,'node','offline','last seen 0')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -38,7 +38,7 @@ func TestV4MigrationAndRollupValues(t *testing.T) {
 	}
 	defer up.Close()
 	var version, count int
-	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 5 {
+	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 6 {
 		t.Fatal(version, err)
 	}
 	if err = up.DB.QueryRow(`SELECT count(*) FROM metrics`).Scan(&count); err != nil || count != 4 {

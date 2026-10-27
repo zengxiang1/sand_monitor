@@ -28,7 +28,7 @@ func migrateBilling(tx *sql.Tx) error {
 type Billing struct {
 	Node, Provider, Expiry, Cycle, Currency, Price string
 	AutoRenew                                      bool
-	QuotaGB, ResetDay                              int
+	QuotaGB, ResetDay, AnchorDay                   int
 	Direction, RemindDays, RemindPct               string
 	Predict                                        bool
 	Notify                                         string
@@ -56,13 +56,13 @@ type Availability struct {
 	Days []Day
 }
 
-const billColumns = `node,provider,expiry,cycle,currency,price,auto_renew,quota_gb,reset_day,direction,remind_days,remind_pct,predict,notify,updated_at`
+const billColumns = `node,provider,expiry,cycle,currency,price,auto_renew,quota_gb,reset_day,direction,remind_days,remind_pct,predict,notify,updated_at,anchor_day`
 const trafficColumns = `node,cycle_start,used_tx,used_rx,adjust,last_tx,last_rx,last_up,first_seen`
 
 var pricePattern = regexp.MustCompile(`^\d{1,7}(\.\d{1,2})?$`)
 
 func DefaultBilling(node string) Billing {
-	return Billing{Node: node, Cycle: "month", Currency: "CNY", Direction: "both", RemindDays: "7,3,1", RemindPct: "80,95,100", Predict: true}
+	return Billing{Node: node, AnchorDay: 1, Cycle: "month", Currency: "CNY", Direction: "both", RemindDays: "7,3,1", RemindPct: "80,95,100", Predict: true}
 }
 func CurrencySymbol(currency string) string {
 	return map[string]string{"CNY": "¥", "USD": "$", "EUR": "€"}[currency]
@@ -106,7 +106,7 @@ func (b Billing) Validate(channels []string) error {
 	return nil
 }
 func scanBilling(row scanner) (b Billing, err error) {
-	err = row.Scan(&b.Node, &b.Provider, &b.Expiry, &b.Cycle, &b.Currency, &b.Price, &b.AutoRenew, &b.QuotaGB, &b.ResetDay, &b.Direction, &b.RemindDays, &b.RemindPct, &b.Predict, &b.Notify, &b.UpdatedAt)
+	err = row.Scan(&b.Node, &b.Provider, &b.Expiry, &b.Cycle, &b.Currency, &b.Price, &b.AutoRenew, &b.QuotaGB, &b.ResetDay, &b.Direction, &b.RemindDays, &b.RemindPct, &b.Predict, &b.Notify, &b.UpdatedAt, &b.AnchorDay)
 	return
 }
 func scanTraffic(row scanner) (t Traffic, err error) {
@@ -184,17 +184,29 @@ func ParseGB(value string) (uint64, error) {
 	}
 	return n.Num().Uint64(), nil
 }
-func AddMonths(t time.Time, months int) time.Time {
+func AddMonths(t time.Time, months, anchorDay int) time.Time {
+	if anchorDay < 1 || anchorDay > 31 {
+		anchorDay = t.Day()
+	}
 	first := time.Date(t.Year(), t.Month()+time.Month(months), 1, 0, 0, 0, 0, t.Location())
 	last := first.AddDate(0, 1, -1).Day()
-	return time.Date(first.Year(), first.Month(), min(t.Day(), last), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
+	return time.Date(first.Year(), first.Month(), min(anchorDay, last), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
 }
-func Advance(expiry, cycle string, loc *time.Location) string {
+func Advance(expiry, cycle string, anchorDay int, loc *time.Location) string {
 	t, err := time.ParseInLocation("2006-01-02", expiry, loc)
 	if err != nil || cycle == "once" {
 		return expiry
 	}
-	return AddMonths(t, map[string]int{"month": 1, "quarter": 3, "half": 6, "year": 12}[cycle]).Format("2006-01-02")
+	return AddMonths(t, map[string]int{"month": 1, "quarter": 3, "half": 6, "year": 12}[cycle], anchorDay).Format("2006-01-02")
+}
+func (b Billing) Anchor() int {
+	if b.AnchorDay >= 1 && b.AnchorDay <= 31 {
+		return b.AnchorDay
+	}
+	if t, e := time.Parse("2006-01-02", b.Expiry); e == nil {
+		return t.Day()
+	}
+	return 1
 }
 func ResetDay(b *Billing) int {
 	if b == nil {
@@ -203,10 +215,7 @@ func ResetDay(b *Billing) int {
 	if b.ResetDay != 0 {
 		return b.ResetDay
 	}
-	if t, e := time.Parse("2006-01-02", b.Expiry); e == nil {
-		return t.Day()
-	}
-	return 1
+	return b.Anchor()
 }
 func CycleStart(now time.Time, b *Billing) time.Time {
 	day := ResetDay(b)
@@ -316,6 +325,14 @@ func (s *Store) account(tx *sql.Tx, n Node, r *proto.Report, now time.Time) erro
 	return nil
 }
 func (s *Store) SaveBilling(b Billing, calibrate *uint64, now time.Time, user, ip string) error {
+	b.AnchorDay = 1
+	if b.Expiry != "" {
+		expiry, err := time.Parse("2006-01-02", b.Expiry)
+		if err != nil {
+			return err
+		}
+		b.AnchorDay = expiry.Day()
+	}
 	return s.Transaction(func(tx *sql.Tx) error {
 		var active bool
 		if err := tx.QueryRow(`SELECT revoked_at=0 FROM nodes WHERE name=?`, b.Node).Scan(&active); err != nil {
@@ -324,7 +341,7 @@ func (s *Store) SaveBilling(b Billing, calibrate *uint64, now time.Time, user, i
 		if !active {
 			return ErrNode
 		}
-		_, err := tx.Exec(`INSERT INTO billing VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(node) DO UPDATE SET provider=excluded.provider,expiry=excluded.expiry,cycle=excluded.cycle,currency=excluded.currency,price=excluded.price,auto_renew=excluded.auto_renew,quota_gb=excluded.quota_gb,reset_day=excluded.reset_day,direction=excluded.direction,remind_days=excluded.remind_days,remind_pct=excluded.remind_pct,predict=excluded.predict,notify=excluded.notify,updated_at=excluded.updated_at`, b.Node, b.Provider, b.Expiry, b.Cycle, b.Currency, b.Price, b.AutoRenew, b.QuotaGB, b.ResetDay, b.Direction, b.RemindDays, b.RemindPct, b.Predict, b.Notify, now.Unix())
+		_, err := tx.Exec(`INSERT INTO billing(`+billColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(node) DO UPDATE SET provider=excluded.provider,expiry=excluded.expiry,cycle=excluded.cycle,currency=excluded.currency,price=excluded.price,auto_renew=excluded.auto_renew,quota_gb=excluded.quota_gb,reset_day=excluded.reset_day,direction=excluded.direction,remind_days=excluded.remind_days,remind_pct=excluded.remind_pct,predict=excluded.predict,notify=excluded.notify,updated_at=excluded.updated_at,anchor_day=excluded.anchor_day`, b.Node, b.Provider, b.Expiry, b.Cycle, b.Currency, b.Price, b.AutoRenew, b.QuotaGB, b.ResetDay, b.Direction, b.RemindDays, b.RemindPct, b.Predict, b.Notify, now.Unix(), b.AnchorDay)
 		if err != nil {
 			return err
 		}
@@ -380,7 +397,7 @@ func (s *Store) Renew(node string, now time.Time, user, ip string) error {
 		if b.Expiry == "" || b.Cycle == "once" {
 			return fmt.Errorf("没有可续费的周期")
 		}
-		expiry := Advance(b.Expiry, b.Cycle, s.Location)
+		expiry := Advance(b.Expiry, b.Cycle, b.Anchor(), s.Location)
 		if _, err = tx.Exec(`UPDATE billing SET expiry=?,updated_at=? WHERE node=?`, expiry, now.Unix(), node); err != nil {
 			return err
 		}

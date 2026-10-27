@@ -28,16 +28,16 @@ type Engine struct {
 func New(s *store.Store, c Config) *Engine {
 	return &Engine{Store: s, Config: c, StartedAt: time.Now()}
 }
-func lastState(tx *sql.Tx, node string) (string, error) {
+func lastState(tx *sql.Tx, node string, since int64) (string, error) {
 	var kind string
-	e := tx.QueryRow(`SELECT kind FROM events WHERE node=? AND kind IN ('offline','recovered') ORDER BY id DESC LIMIT 1`, node).Scan(&kind)
+	e := tx.QueryRow(`SELECT kind FROM events WHERE node=? AND ts>=? AND kind IN ('offline','recovered') ORDER BY id DESC LIMIT 1`, node, since).Scan(&kind)
 	if e == sql.ErrNoRows {
 		return "", nil
 	}
 	return kind, e
 }
 func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time) error {
-	state, err := lastState(tx, n.Name)
+	state, err := lastState(tx, n.Name, n.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -179,13 +179,15 @@ func (e *Engine) CheckOffline(now time.Time) error {
 		}
 		for _, n := range nodes {
 			last := n.last
+			grace := 3 * e.Config.Interval
 			if last == 0 {
 				last = n.created
+				grace = 10 * time.Minute
 			}
-			if now.Sub(time.Unix(last, 0)) <= 3*e.Config.Interval {
+			if now.Sub(time.Unix(last, 0)) <= grace {
 				continue
 			}
-			state, err := lastState(tx, n.name)
+			state, err := lastState(tx, n.name, n.created)
 			if err != nil {
 				return err
 			}

@@ -45,7 +45,7 @@ func TestPhaseOneMigration(t *testing.T) {
 			}
 			defer s.Close()
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 5 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 6 {
 				t.Fatal(got, err)
 			}
 			n, err := s.Node("old")
@@ -126,7 +126,7 @@ func TestRevokedKeysMigration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = s.DB.Exec(`UPDATE nodes SET revoked_at=100 WHERE name='node'; DROP TABLE revoked_keys`); err != nil {
+		if _, err = s.DB.Exec(`UPDATE nodes SET revoked_at=100 WHERE name='node'; DROP TABLE revoked_keys;ALTER TABLE billing DROP COLUMN anchor_day;PRAGMA user_version=5`); err != nil {
 			t.Fatal(err)
 		}
 		if version == 4 {
@@ -144,9 +144,76 @@ func TestRevokedKeysMigration(t *testing.T) {
 				t.Fatal(version, fingerprint, name, at, err)
 			}
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 5 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 6 {
 				t.Fatal(version, got, err)
 			}
 		}
+	}
+}
+
+func TestV5AnchorDayMigration(t *testing.T) {
+	s := billingStore(t)
+	b := DefaultBilling("node")
+	b.Expiry = "2026-01-31"
+	if err := s.SaveBilling(b, nil, time.Now(), "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	node, err := s.Node("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, expiry := range map[string]string{"blank": "", "leap": "2024-02-29"} {
+		if err = s.AddNode(name, node.Pubkey, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		bill := DefaultBilling(name)
+		bill.Expiry = expiry
+		if err = s.SaveBilling(bill, nil, time.Now(), "admin", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.DB.Exec(`ALTER TABLE billing DROP COLUMN anchor_day; PRAGMA user_version=5`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.Migrate(); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Billing("node")
+		if err != nil || got.AnchorDay != 31 || got.Expiry != b.Expiry {
+			t.Fatal(got, err)
+		}
+		for name, anchor := range map[string]int{"blank": 1, "leap": 29} {
+			got, err := s.Billing(name)
+			if err != nil || got.AnchorDay != anchor {
+				t.Fatal(got, err)
+			}
+		}
+	}
+	if _, err := s.DB.Exec(`UPDATE billing SET expiry='2026-02-28'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Billing("node")
+	if err != nil || got.AnchorDay != 31 {
+		t.Fatal("migration rewrote anchor", got, err)
+	}
+	got.Expiry = "2026-03-15"
+	if err = s.SaveBilling(got, nil, time.Now(), "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.Billing("node")
+	if err != nil || got.AnchorDay != 15 {
+		t.Fatal("save failed to reset anchor", got, err)
+	}
+	got.Expiry = ""
+	if err = s.SaveBilling(got, nil, time.Now(), "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.Billing("node")
+	if err != nil || got.AnchorDay != 1 {
+		t.Fatal(got, err)
 	}
 }

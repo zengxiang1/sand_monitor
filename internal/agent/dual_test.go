@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -243,11 +244,19 @@ func TestDualLoginCatchup(t *testing.T) {
 	c := config(t)
 	wtmp := filepath.Join(t.TempDir(), "wtmp")
 	appendLogin := func(user string, ts uint32) {
-		raw := make([]byte, 384)
+		size := 384
+		if runtime.GOARCH == "arm64" {
+			size = 400
+		}
+		raw := make([]byte, size)
 		binary.LittleEndian.PutUint16(raw, 7)
 		copy(raw[44:76], user)
 		copy(raw[76:332], "203.0.113.7")
-		binary.LittleEndian.PutUint32(raw[340:344], ts)
+		if size == 400 {
+			binary.LittleEndian.PutUint64(raw[344:352], uint64(ts))
+		} else {
+			binary.LittleEndian.PutUint32(raw[340:344], ts)
+		}
 		f, err := os.OpenFile(wtmp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			t.Fatal(err)
@@ -434,6 +443,15 @@ func TestTargetFailureLogLimit(t *testing.T) {
 		}
 		status = 204
 		advance(time.Second)
+		for _, target := range []string{"primary", "backup"} {
+			if strings.Count(output.String(), "report to "+target+" recovered after 6 failures") != 1 {
+				t.Fatal(output.String())
+			}
+		}
+		advance(time.Second)
+		if strings.Count(output.String(), "recovered after") != 2 {
+			t.Fatal(output.String())
+		}
 		status = 500
 		advance(time.Second)
 		if strings.Count(output.String(), "failed:") != 8 {

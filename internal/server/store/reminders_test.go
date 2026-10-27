@@ -52,6 +52,7 @@ func TestReminderDatesAndDedup(t *testing.T) {
 		}
 	}
 	b.Expiry = "2026-01-31"
+	b.AnchorDay = 31
 	at := time.Date(2026, 2, 2, 0, 0, 0, 0, loc)
 	r = DecideReminders(b, Traffic{}, nil, nil, at)
 	if len(r) != 1 || r[0].Advance != "2026-02-28" {
@@ -121,6 +122,7 @@ func TestReminderTransactionAutoAdvanceAndTargets(t *testing.T) {
 	now := time.Date(2026, 2, 2, 10, 0, 0, 0, time.UTC)
 	b := DefaultBilling("node")
 	b.Expiry = "2026-01-31"
+	b.AnchorDay = 31
 	b.AutoRenew = true
 	b.RemindPct = ""
 	b.Predict = false
@@ -178,5 +180,71 @@ func TestAutoRenewReminderCost(t *testing.T) {
 		if len(reminders) != 1 || reminders[0].Detail != tc.want {
 			t.Fatal(tc, reminders)
 		}
+	}
+}
+
+func TestAnchoredAutoRenewAcrossCycles(t *testing.T) {
+	for _, tc := range []struct {
+		expiry, cycle string
+		anchor        int
+		dates         []string
+	}{
+		{"2026-01-31", "month", 31, []string{"2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31", "2026-08-31", "2026-09-30", "2026-10-31", "2026-11-30", "2026-12-31", "2027-01-31"}},
+		{"2024-02-29", "year", 29, []string{"2025-02-28", "2026-02-28", "2027-02-28", "2028-02-29"}},
+		{"2026-01-31", "quarter", 31, []string{"2026-04-30", "2026-07-31", "2026-10-31", "2027-01-31"}},
+		{"2026-08-31", "half", 31, []string{"2027-02-28", "2027-08-31", "2028-02-29", "2028-08-31"}},
+	} {
+		t.Run(tc.cycle, func(t *testing.T) {
+			s := billingStore(t)
+			b := DefaultBilling("node")
+			b.Expiry, b.Cycle, b.AutoRenew = tc.expiry, tc.cycle, true
+			at, _ := time.Parse("2006-01-02", b.Expiry)
+			if err := s.SaveBilling(b, nil, at, "admin", ""); err != nil {
+				t.Fatal(err)
+			}
+			for i, want := range tc.dates {
+				b, _ = s.Billing("node")
+				at, _ = time.Parse("2006-01-02", b.Expiry)
+				at = at.AddDate(0, 0, 2)
+				for range 2 {
+					if err := s.CheckReminders(at); err != nil {
+						t.Fatal(err)
+					}
+				}
+				got, err := s.Billing("node")
+				if err != nil || got.Expiry != want || got.AnchorDay != tc.anchor || ResetDay(&got) != tc.anchor {
+					t.Fatal(got, want, err)
+				}
+				var count int
+				if err = s.DB.QueryRow(`SELECT count(*) FROM audit_log WHERE action='billing_auto_advance'`).Scan(&count); err != nil || count != i+1 {
+					t.Fatal(count, err)
+				}
+			}
+		})
+	}
+}
+func TestAutoRenewCatchesUpOnce(t *testing.T) {
+	s := billingStore(t)
+	b := DefaultBilling("node")
+	b.Expiry, b.AutoRenew = "2026-01-31", true
+	now := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	if err := s.SaveBilling(b, nil, now, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.CheckReminders(now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.Billing("node")
+	if err != nil || got.Expiry != "2026-07-31" || got.AnchorDay != 31 {
+		t.Fatal(got, err)
+	}
+	var count int
+	if err = s.DB.QueryRow(`SELECT count(*) FROM events WHERE kind='billing' AND detail='已按自动续费顺延到 2026-07-31'`).Scan(&count); err != nil || count != 1 {
+		t.Fatal(count, err)
+	}
+	if err = s.DB.QueryRow(`SELECT count(*) FROM audit_log WHERE action='billing_auto_advance'`).Scan(&count); err != nil || count != 1 {
+		t.Fatal(count, err)
 	}
 }

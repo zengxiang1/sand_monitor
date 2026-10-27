@@ -78,6 +78,8 @@ func run(args []string) error {
 	defer s.Close()
 	s.RetentionDays = c.RetentionDays
 	s.Location = c.Location
+	// Panel templates, charts and logs format times in the process zone; containers default to UTC.
+	time.Local = c.Location
 	s.Interval = c.Alerts.Interval
 	switch command {
 	case "admin add", "admin passwd", "admin reset-totp", "admin list", "admin remove":
@@ -127,7 +129,7 @@ func run(args []string) error {
 		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Webhook{URL: c.WebhookURL, Instance: c.InstanceName})
 	}
 	if c.TelegramToken != "" {
-		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Telegram{Token: c.TelegramToken, ChatID: c.TelegramChatID, Instance: c.InstanceName})
+		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Telegram{Token: c.TelegramToken, ChatID: c.TelegramChatID, Instance: c.InstanceName, Location: c.Location})
 	}
 	peerCheck := &peer.Loop{URL: c.PeerURL, Notifiers: dispatcher.Notifiers}
 	var wg sync.WaitGroup

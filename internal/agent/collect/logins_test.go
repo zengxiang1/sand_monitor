@@ -1,22 +1,33 @@
 package collect
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"wanglou/internal/proto"
 )
 
 func loginRecord(user string, ts int64) []byte {
-	b := make([]byte, wtmpRecordSize)
+	return layoutRecord(wtmpRecordSize, user, ts)
+}
+func layoutRecord(size int, user string, ts int64) []byte {
+	b := make([]byte, size)
 	binary.LittleEndian.PutUint16(b, 7)
 	copy(b[44:76], user)
 	copy(b[76:332], "203.0.113.7")
-	binary.LittleEndian.PutUint32(b[340:344], uint32(ts))
+	if size == 400 {
+		binary.LittleEndian.PutUint64(b[344:352], uint64(ts))
+	} else {
+		binary.LittleEndian.PutUint32(b[340:344], uint32(ts))
+	}
 	return b
 }
 func appendRecords(t *testing.T, path string, records ...[]byte) {
@@ -57,8 +68,8 @@ func ack(t *testing.T, r *loginReader) {
 func TestBigWTMPBaselineAndIncrementalRead(t *testing.T) {
 	dir := t.TempDir()
 	path, state := filepath.Join(dir, "wtmp"), filepath.Join(dir, "agent.seq.logins.json")
-	// Expand the checked-in ABI fixture well beyond the report body limit.
-	raw := []byte(fixture(t, "wtmp"))
+	// Generate history well beyond the report body limit.
+	raw := wtmpFixture()
 	var big []byte
 	for range 3000 {
 		big = append(big, raw...)
@@ -199,5 +210,100 @@ func TestLoginPartialRecordAndMissingFile(t *testing.T) {
 	appendRecords(t, path, b[100:])
 	if got := loginSample(t, r); len(got) != 1 {
 		t.Fatal(got)
+	}
+}
+
+func TestWTMPLayouts(t *testing.T) {
+	wantSize := 384
+	if runtime.GOARCH == "arm64" {
+		wantSize = 400
+	}
+	if wtmpRecordSize != wantSize {
+		t.Fatal(wtmpRecordSize, wantSize)
+	}
+	for _, size := range []int{384, 400} {
+		ts := int64(1761551990)
+		if size == 400 {
+			ts = 1<<33 + 17
+		}
+		raw := layoutRecord(size, "generated", ts)
+		clear(raw[76:332])
+		addr := 348
+		if size == 400 {
+			addr = 360
+		}
+		copy(raw[addr:addr+16], []byte{0x20, 1, 0xd, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
+		got, ok := decodeWTMP(raw)
+		if size != wtmpRecordSize {
+			if ok {
+				t.Fatal("accepted wrong ABI", size, got)
+			}
+			continue
+		}
+		if !ok || got.Time != ts || got.From != "2001:db8::1" || got.User != "generated" {
+			t.Fatal(size, got, ok)
+		}
+		parsed, err := ParseWTMP(bytes.NewReader(append(raw, raw...)), ts)
+		if err != nil || len(parsed) != 1 || parsed[0] != got {
+			t.Fatal(parsed, err)
+		}
+	}
+}
+func TestInvalidDualCursorsRebuildBaseline(t *testing.T) {
+	for _, state := range []string{`{broken`, `{"initialized":true,"offset":384,"timestamp":9999999999}`} {
+		t.Run(state, func(t *testing.T) {
+			if wtmpRecordSize == 384 && strings.Contains(state, "384") {
+				state = strings.Replace(state, "384", "400", 1)
+			}
+			dir := t.TempDir()
+			path := filepath.Join(dir, "wtmp")
+			primary, backup := filepath.Join(dir, "logins.json"), filepath.Join(dir, "backup.logins.json")
+			appendRecords(t, path, loginRecord("history", 100), loginRecord("baseline", 101))
+			for _, p := range []string{primary, backup} {
+				if err := os.WriteFile(p, []byte(state), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var output bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&output)
+			defer log.SetOutput(previous)
+			readers, err := newLoginCollectors(path, primary, []string{backup})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Count(output.String(), "rebuilding baseline") != 2 {
+				t.Fatal(output.String())
+			}
+			for target, r := range readers {
+				got, err := readers.Logins(target)
+				if err != nil || len(got) != 0 || r.cursor.Offset != 2*wtmpRecordSize || r.cursor.Timestamp != 101 {
+					t.Fatal(target, got, r.cursor, err)
+				}
+				if err = readers.Acknowledge(target); err != nil {
+					t.Fatal(err)
+				}
+			}
+			appendRecords(t, path, loginRecord("new", 102))
+			for target := range readers {
+				got, err := readers.Logins(target)
+				if err != nil || len(got) != 1 || got[0].User != "new" {
+					t.Fatal(target, got, err)
+				}
+				if err = readers.Acknowledge(target); err != nil {
+					t.Fatal(err)
+				}
+			}
+			restarted, err := newLoginCollectors(path, primary, []string{backup})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for target := range restarted {
+				got, err := restarted.Logins(target)
+				if err != nil || len(got) != 0 {
+					t.Fatal(target, got, err)
+				}
+			}
+		})
 	}
 }

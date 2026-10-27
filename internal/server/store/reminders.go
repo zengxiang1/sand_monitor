@@ -74,10 +74,14 @@ func DecideReminders(b Billing, t Traffic, days []Daily, seen map[string]bool, n
 	out := []Reminder{}
 	remaining, hasExpiry := Remaining(b.Expiry, now)
 	if hasExpiry && b.AutoRenew && b.Cycle != "once" && remaining <= -2 {
-		expiry := Advance(b.Expiry, b.Cycle, now.Location())
+		expiry := b.Expiry
+		for remaining < 0 {
+			expiry = Advance(expiry, b.Cycle, b.Anchor(), now.Location())
+			remaining, _ = Remaining(expiry, now)
+		}
 		out = append(out, Reminder{Key: "advance:" + b.Expiry, Kind: "billing", Detail: "已按自动续费顺延到 " + expiry, Advance: expiry})
 	}
-	if hasExpiry && now.Hour() >= 9 {
+	if hasExpiry && len(out) == 0 && now.Hour() >= 9 {
 		key, detail := "", ""
 		if b.AutoRenew {
 			if remaining == 3 {

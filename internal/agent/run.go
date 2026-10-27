@@ -130,6 +130,9 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 			target := done.sender
 			target.busy = false
 			if done.err == nil {
+				if target.failures > 0 {
+					log.Printf("report to %s recovered after %d failures", target.name, target.failures)
+				}
 				target.failures, target.lastError = 0, ""
 				target.ready = time.Time{}
 				continue

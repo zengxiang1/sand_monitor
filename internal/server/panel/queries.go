@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"wanglou/internal/server/eventtext"
+	"wanglou/internal/server/format"
 	"wanglou/internal/server/ingest"
 	"wanglou/internal/server/store"
 )
@@ -83,16 +84,8 @@ func percent(used, total float64) float64 {
 	}
 	return min(100, max(0, used/total*100))
 }
-func formatNumber(n float64) string { return fmt.Sprintf("%.1f", n) }
-func formatRate(value float64) string {
-	units := []string{"B/s", "KB/s", "MB/s", "GB/s"}
-	unit := 0
-	for value >= 1024 && unit < len(units)-1 {
-		value /= 1024
-		unit++
-	}
-	return fmt.Sprintf("%.1f %s", value, units[unit])
-}
+func formatNumber(n float64) string   { return fmt.Sprintf("%.1f", n) }
+func formatRate(value float64) string { return format.Rate(value) }
 func formatMemory(used, total float64) string {
 	unit := "MiB"
 	if total >= 1024 {

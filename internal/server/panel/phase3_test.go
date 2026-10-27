@@ -50,7 +50,7 @@ func TestBillingValidationSaveRenewAndOverview(t *testing.T) {
 		t.Fatal(w.Code, w.Body)
 	}
 	b, err := f.s.Billing("node")
-	if err != nil || b.Price != "58.00" || b.Notify != "telegram,webhook" {
+	if err != nil || b.Price != "58.00" || b.Notify != "telegram,webhook" || b.AnchorDay != 31 {
 		t.Fatal(b, err)
 	}
 	tr, err := f.s.Traffic("node")
@@ -73,7 +73,7 @@ func TestBillingValidationSaveRenewAndOverview(t *testing.T) {
 		t.Fatal(w.Code, w.Body)
 	}
 	b, _ = f.s.Billing("node")
-	if b.Expiry != "2026-02-28" {
+	if b.Expiry != "2026-02-28" || b.AnchorDay != 31 {
 		t.Fatal(b.Expiry)
 	}
 	form.Set("cycle", "once")

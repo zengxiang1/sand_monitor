@@ -130,6 +130,9 @@ func TestCycleBoundariesAndRenewal(t *testing.T) {
 		now, _ := time.ParseInLocation("2006-01-02", tc.today, loc)
 		b := DefaultBilling("node")
 		b.Expiry = tc.expiry
+		if expiry, err := time.Parse("2006-01-02", b.Expiry); err == nil {
+			b.AnchorDay = expiry.Day()
+		}
 		b.ResetDay = tc.reset
 		if got := CycleStart(now, &b).Format("2006-01-02"); got != tc.want {
 			t.Fatal(tc, got)
@@ -143,9 +146,18 @@ func TestCycleBoundariesAndRenewal(t *testing.T) {
 		t.Fatal("natural month")
 	}
 	for _, tc := range []struct{ date, cycle, want string }{{"2026-01-31", "month", "2026-02-28"}, {"2024-01-31", "month", "2024-02-29"}, {"2026-11-30", "quarter", "2027-02-28"}, {"2024-02-29", "year", "2025-02-28"}, {"2026-08-31", "half", "2027-02-28"}, {"2026-01-31", "once", "2026-01-31"}} {
-		if got := Advance(tc.date, tc.cycle, loc); got != tc.want {
+		date, _ := time.Parse("2006-01-02", tc.date)
+		if got := Advance(tc.date, tc.cycle, date.Day(), loc); got != tc.want {
 			t.Fatal(tc, got)
 		}
+	}
+	if got := Advance("2026-01-31", "month", 0, loc); got != "2026-02-28" {
+		t.Fatal("zero anchor", got)
+	}
+	zero := DefaultBilling("node")
+	zero.Expiry, zero.AutoRenew, zero.AnchorDay = "2026-01-31", true, 0
+	if r := DecideReminders(zero, Traffic{}, nil, map[string]bool{}, time.Date(2026, 3, 5, 10, 0, 0, 0, loc)); len(r) != 1 || r[0].Advance != "2026-03-31" {
+		t.Fatal("zero anchor catch-up", r)
 	}
 	s := billingStore(t)
 	s.Location = loc
@@ -233,7 +245,7 @@ func TestPhaseThreeMigrationAndRetention(t *testing.T) {
 	}
 	defer up.Close()
 	var version int
-	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 5 {
+	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 6 {
 		t.Fatal(version, err)
 	}
 	var detail string

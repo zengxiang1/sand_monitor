@@ -159,7 +159,7 @@ func TestRevokedEnrollmentCodeAndPaste(t *testing.T) {
 				t.Fatal(w.Code, w.Body)
 			}
 			enabled, err := f.s.Node("node")
-			if err != nil || enabled.RevokedAt != 0 || enabled.Fingerprint != proto.Fingerprint(pub) || enabled.CreatedAt != original.CreatedAt || enabled.LastSeq != original.LastSeq || enabled.Note == original.Note {
+			if err != nil || enabled.RevokedAt != 0 || enabled.Fingerprint != proto.Fingerprint(pub) || enabled.CreatedAt != f.now.Unix() || enabled.LastSeen != 0 || enabled.LastSeq != original.LastSeq || enabled.Note == original.Note {
 				t.Fatal(enabled, original, err)
 			}
 			f.key = key

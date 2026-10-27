@@ -86,7 +86,7 @@ func TestMalformedProc(t *testing.T) {
 	}
 }
 func TestWTMP(t *testing.T) {
-	raw := fixture(t, "wtmp")
+	raw := string(wtmpFixture())
 	logins, e := ParseWTMP(strings.NewReader(raw), 0)
 	if e != nil || len(logins) != 3 || logins[0].User != "root" || logins[1].From != "2001:db8::1" {
 		t.Fatal(logins, e)
@@ -99,9 +99,13 @@ func TestWTMP(t *testing.T) {
 	if e != nil || len(none) != 2 {
 		t.Fatal(none, e)
 	}
-	b := []byte(raw[:384])
+	b := []byte(raw[:wtmpRecordSize])
 	clear(b[76:332])
-	copy(b[348:352], []byte{203, 0, 113, 9})
+	addr := 348
+	if wtmpRecordSize == 400 {
+		addr = 360
+	}
+	copy(b[addr:addr+4], []byte{203, 0, 113, 9})
 	got, e := ParseWTMP(bytes.NewReader(b), 0)
 	if e != nil || len(got) != 1 || got[0].From != "203.0.113.9" {
 		t.Fatal(got, e)
@@ -122,4 +126,13 @@ func TestCollectorFlow(t *testing.T) {
 	if _, e = c.Sample(); e != nil {
 		t.Fatal(e)
 	}
+}
+
+func wtmpFixture() []byte {
+	first := loginRecord("root", 1761551990)
+	second := loginRecord("alice", 1761551991)
+	clear(second[76:332])
+	copy(second[76:332], "2001:db8::1")
+	third := loginRecord("bob", 1761551991)
+	return bytes.Join([][]byte{first, second, third, third}, nil)
 }
