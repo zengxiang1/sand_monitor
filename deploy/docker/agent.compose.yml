@@ -1,0 +1,32 @@
+services:
+  wanglou-agent:
+    image: ${WANGLOU_AGENT_IMAGE:-wanglou-agent:local}
+    build:
+      context: ../..
+      target: agent
+    restart: unless-stopped
+    network_mode: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - type: bind
+        source: /proc
+        target: /host/proc
+        read_only: true
+      - type: bind
+        source: /
+        target: /host/root
+        read_only: true
+      - type: bind
+        source: /var/log/wtmp
+        target: /host/wtmp
+        read_only: true
+        bind:
+          create_host_path: false
+      - agent_state:/var/lib/wanglou
+
+volumes:
+  agent_state:
+    external: true
+    name: wanglou-agent-state

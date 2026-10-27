@@ -1,0 +1,16 @@
+.git
+.github
+.cache
+bin
+docs/design
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.key
+**/*.seq
+**/*.logins.json
+**/.login-cursor-*
+**/.seq-*
+**/.env
+**/*.pem
+**/*.crt

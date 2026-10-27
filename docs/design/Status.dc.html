@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>服务器状态 · 公开页</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans+Condensed:wght@500;600;700&amp;family=Noto+Sans+SC:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0;background:#F1F3F5}
+a{color:#1D5BC8}a:hover{color:#16479E}
+a:focus-visible,button:focus-visible{outline:2px solid #1D5BC8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F1F3F5; color: #16212C; font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <header style="background: #FFFFFF; border-bottom: 1px solid #D6DCE2">
+    <div style="max-width: 1200px; margin: 0 auto; padding: 32px 24px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <h1 style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 30px; font-weight: 700">服务器状态</h1>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">status.example.com</span>
+        </div>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">更新于 14:32 · 每 30 秒刷新</span>
+      </div>
+      <div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px 20px; border-radius: 8px; background: #FBF0DC; border: 1px solid #E8CF9F">
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #C9780E; flex: none"></span>
+        <div style="flex: 999 1 360px; min-width: 0; display: flex; flex-direction: column">
+          <strong style="font-size: 17px; font-weight: 600">6 台正常运行，1 台离线</strong>
+          <span style="color: #4A3A1E">北京 · 01 从 14:29 起没有响应，正在排查。其他服务器不受影响。</span>
+        </div>
+        <div style="display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1D8754"></span>正常 6</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #C3352B"></span>离线 1</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width: 1200px; margin: 0 auto; padding: 28px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+    <section aria-labelledby="nodes-h" style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px">
+        <h2 id="nodes-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 20px; font-weight: 600">服务器</h2>
+        <span style="display: inline-flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #5A6775">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 14px; border-radius: 2px; background: #1D8754"></span>全天在线</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 14px; border-radius: 2px; background: #E2A84B"></span>短暂中断</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 14px; border-radius: 2px; background: #C3352B"></span>中断超过 1 小时</span>
+        </span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 14px">
+        <sc-for list="{{nodes}}" as="n" hint-placeholder-count="7">
+          <article style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px">
+              <div style="display: flex; flex-direction: column; min-width: 0">
+                <h3 style="margin: 0; font-size: 16px; font-weight: 600">{{n.alias}}</h3>
+                <sc-if value="{{showSpecs}}" hint-placeholder-val="{{ true }}">
+                  <span style="font-size: 12.5px; color: #5A6775">{{n.specs}}</span>
+                </sc-if>
+              </div>
+              <span style="flex: none; font-size: 12px; font-weight: 500; padding: 2px 10px; border-radius: 99px; color: {{n.tone.c}}; background: {{n.tone.bg}}">{{n.tone.label}}</span>
+            </div>
+
+            <sc-if value="{{n.live}}" hint-placeholder-val="{{ true }}">
+              <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+                <sc-for list="{{n.meters}}" as="m" hint-placeholder-count="3">
+                  <div style="display: flex; flex-direction: column; gap: 5px">
+                    <div style="display: flex; justify-content: space-between; gap: 6px; font-size: 12px; color: #5A6775"><span>{{m.k}}</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; color: #16212C">{{m.v}}%</span></div>
+                    <span style="height: 5px; background: #E8ECF0; border-radius: 3px; overflow: hidden"><span style="display: block; height: 100%; border-radius: 3px; width: {{m.v}}%; background: {{m.color}}"></span></span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{n.down}}" hint-placeholder-val="{{ false }}">
+              <p style="margin: 0; padding: 10px 12px; background: #FBE5E3; border-radius: 6px; font-size: 13px; color: #8E2019">14:29 起无响应，最近一次正常上报在 14:29。</p>
+            </sc-if>
+
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; font-size: 12.5px; color: #3B4754">
+              <sc-if value="{{showNet}}" hint-placeholder-val="{{ true }}">
+                <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums">↑ {{n.up}}　↓ {{n.dn}}</span>
+              </sc-if>
+              <span>{{n.uptime}}</span>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <div role="img" aria-label="{{n.barsAria}}" style="display: flex; gap: 2px; height: 26px">
+                <sc-for list="{{n.bars}}" as="b" hint-placeholder-count="45">
+                  <span style="flex: 1 1 0; border-radius: 2px; background: {{b.c}}"></span>
+                </sc-for>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: #5A6775">
+                <span>45 天前</span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #16212C">可用率 {{n.avail}}</span><span>今天</span>
+              </div>
+            </div>
+          </article>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-labelledby="news-h" style="display: flex; flex-direction: column; gap: 14px; max-width: 820px">
+      <h2 id="news-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 20px; font-weight: 600">公告</h2>
+      <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px">
+        <li style="padding: 16px 18px; border-bottom: 1px solid #E4E8EC; display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px">
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">10-27 14:35</span>
+            <strong style="font-weight: 600">北京 · 01 离线</strong>
+            <span style="font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 4px; color: #8F5A0B; background: #FBF0DC">排查中</span>
+          </div>
+          <p style="margin: 0; color: #3B4754">已收到告警，正在确认原因。恢复后会在这里更新。</p>
+        </li>
+        <li style="padding: 16px 18px; border-bottom: 1px solid #E4E8EC; display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px">
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">10-19 03:00</span>
+            <strong style="font-weight: 600">法兰克福 · 01 计划维护</strong>
+            <span style="font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 4px; color: #1D8754; background: #E2F3EA">已完成</span>
+          </div>
+          <p style="margin: 0; color: #3B4754">系统升级后重启，停机约 3 分钟。</p>
+        </li>
+        <li style="padding: 16px 18px; display: flex; flex-direction: column; gap: 4px">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px">
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">10-02 21:40</span>
+            <strong style="font-weight: 600">洛杉矶 · 01 网络中断</strong>
+            <span style="font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 4px; color: #1D8754; background: #E2F3EA">已恢复</span>
+          </div>
+          <p style="margin: 0; color: #3B4754">机房上游线路故障，中断 1 小时 12 分钟。</p>
+        </li>
+      </ol>
+    </section>
+  </main>
+
+  <footer style="border-top: 1px solid #D6DCE2; background: #FFFFFF">
+    <div style="max-width: 1200px; margin: 0 auto; padding: 18px 24px; box-sizing: border-box; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 24px; font-size: 12.5px; color: #5A6775">
+      <span>本页只展示运行状态，不包含 IP、服务商、账单和登录信息。</span>
+      <span>由望楼生成</span>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1D5BC8","options":["#1D5BC8","#0F6E78","#4B45B8"]},"showSpecs":{"editor":"boolean","default":true},"showNet":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1560}}'>
+class Component extends DCLogic {
+  bars(seed, incidents) {
+    var out = [], x = seed;
+    for (var i = 0; i < 45; i++) {
+      x = (x * 9301 + 49297) % 233280;
+      var c = '#1D8754';
+      if (x / 233280 > 0.965) c = '#E2A84B';
+      out.push({ c: c });
+    }
+    (incidents || []).forEach(function (p) { out[p[0]] = { c: p[1] }; });
+    return out;
+  }
+  renderVals() {
+    var self = this;
+    var accent = this.props.accent ?? '#1D5BC8';
+    var ok = { label: '正常', c: '#1D8754', bg: '#E2F3EA' };
+    var down = { label: '离线', c: '#C3352B', bg: '#FBE5E3' };
+    var hot = function (v) { return v >= 80 ? '#C9780E' : accent; };
+    var list = [
+      { alias: '香港 · 01', specs: '2 核 · 2 GB', cpu: 14, mem: 41, disk: 46, up: '1.5 MB/s', dn: '8.6 MB/s', uptime: '已运行 12 天', avail: '99.98%', seed: 3 },
+      { alias: '东京 · 01', specs: '1 核 · 1 GB', cpu: 38, mem: 63, disk: 33, up: '320 KB/s', dn: '1.1 MB/s', uptime: '已运行 12 天', avail: '100%', seed: 7 },
+      { alias: '新加坡 · 01', specs: '2 核 · 4 GB', cpu: 8, mem: 29, disk: 21, up: '96 KB/s', dn: '410 KB/s', uptime: '已运行 41 天', avail: '100%', seed: 11 },
+      { alias: '洛杉矶 · 01', specs: '1 核 · 512 MB', cpu: 21, mem: 88, disk: 71, up: '2.3 MB/s', dn: '2.0 MB/s', uptime: '已运行 25 天', avail: '99.83%', seed: 5, inc: [[20, '#C3352B']] },
+      { alias: '法兰克福 · 01', specs: '4 核 · 8 GB', cpu: 35, mem: 52, disk: 58, up: '740 KB/s', dn: '3.9 MB/s', uptime: '已运行 8 天', avail: '99.99%', seed: 13, inc: [[37, '#E2A84B']] },
+      { alias: '阿姆斯特丹 · 01', specs: '1 核 · 1 GB', cpu: 4, mem: 22, disk: 18, up: '12 KB/s', dn: '40 KB/s', uptime: '已运行 63 天', avail: '100%', seed: 17 },
+      { alias: '北京 · 01', specs: '2 核 · 2 GB', cpu: 0, mem: 0, disk: 0, up: '—', dn: '—', uptime: '离线 3 分钟', avail: '99.71%', seed: 19, off: true, inc: [[44, '#E2A84B']] }
+    ];
+    var nodes = list.map(function (n) {
+      return {
+        alias: n.alias, specs: n.specs, tone: n.off ? down : ok,
+        live: !n.off, down: !!n.off,
+        meters: [
+          { k: 'CPU', v: n.cpu, color: hot(n.cpu) },
+          { k: '内存', v: n.mem, color: hot(n.mem) },
+          { k: '磁盘', v: n.disk, color: hot(n.disk) }
+        ],
+        up: n.up, dn: n.dn, uptime: n.uptime, avail: n.avail,
+        bars: self.bars(n.seed, n.inc),
+        barsAria: n.alias + ' 近 45 天可用率 ' + n.avail
+      };
+    });
+    return {
+      accent: accent,
+      showSpecs: this.props.showSpecs ?? true,
+      showNet: this.props.showNet ?? true,
+      nodes: nodes
+    };
+  }
+}
+</script>
+</body>
+</html>

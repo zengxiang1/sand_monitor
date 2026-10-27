@@ -1,0 +1,3 @@
+{$DOMAIN} {
+	reverse_proxy wanglou-server:8080
+}

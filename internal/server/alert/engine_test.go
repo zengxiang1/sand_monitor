@@ -1,0 +1,191 @@
+package alert
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"database/sql"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+	"wanglou/internal/proto"
+	"wanglou/internal/server/store"
+)
+
+func setupEngine(t *testing.T) (*Engine, time.Time) {
+	t.Helper()
+	s, e := store.Open(filepath.Join(t.TempDir(), "db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { s.Close() })
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Unix(1700000000, 0)
+	if e = s.AddNode("node", pub, now); e != nil {
+		t.Fatal(e)
+	}
+	return New(s, DefaultConfig()), now
+}
+func sampleReport() proto.Report {
+	return proto.Report{Version: 1, Bin: "sha256:" + strings.Repeat("a", 64), OS: "linux", Arch: "amd64", Mem: [2]float64{10, 100}, Disk: [2]float64{10, 100}, Login: []proto.Login{}}
+}
+func send(t *testing.T, e *Engine, now time.Time, r proto.Report) {
+	t.Helper()
+	n, err := e.Store.Node("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = e.Store.Accept("node", n.LastSeq+1, now, "203.0.113.1", &r, func() error { return nil }, func(tx *sql.Tx, n store.Node) error { return e.Report(tx, n, r, now) })
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+func count(t *testing.T, e *Engine, kind string) int {
+	t.Helper()
+	var n int
+	if err := e.Store.DB.QueryRow(`SELECT count(*) FROM events WHERE kind=?`, kind).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+func TestOfflineRecovered(t *testing.T) {
+	e, now := setupEngine(t)
+	r := sampleReport()
+	send(t, e, now, r)
+	for _, seconds := range []int{15, 16, 20} {
+		if err := e.CheckOffline(now.Add(time.Duration(seconds) * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if seconds > 15 {
+			want = 1
+		}
+		if count(t, e, "offline") != want {
+			t.Fatal(seconds)
+		}
+	}
+	// Engine recreation uses persisted state and does not repeat an event.
+	e = New(e.Store, DefaultConfig())
+	if err := e.CheckOffline(now.Add(21 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, e, "offline") != 1 {
+		t.Fatal("duplicate offline")
+	}
+	send(t, e, now.Add(22*time.Second), r)
+	send(t, e, now.Add(23*time.Second), r)
+	if count(t, e, "recovered") != 1 {
+		t.Fatal("recovery")
+	}
+	if err := e.Store.Revoke("node", now.Add(24*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.CheckOffline(now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, e, "offline") != 1 {
+		t.Fatal("revoked offline")
+	}
+}
+func TestNeverReportedOffline(t *testing.T) {
+	e, now := setupEngine(t)
+	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, e, "offline") != 1 {
+		t.Fatal("never-seen node")
+	}
+	send(t, e, now.Add(17*time.Second), sampleReport())
+	if count(t, e, "recovered") != 1 {
+		t.Fatal("recovered")
+	}
+}
+func TestLoginBaselineNewIPAndBinary(t *testing.T) {
+	e, now := setupEngine(t)
+	r := sampleReport()
+	r.Login = []proto.Login{{User: "root", From: "203.0.113.7", Time: now.Unix() - 1}, {User: "alice", From: "2001:db8::1", Time: now.Unix() - 1}}
+	send(t, e, now, r)
+	if count(t, e, "login_new_ip") != 0 {
+		t.Fatal("baseline alerted")
+	}
+	r.Login = []proto.Login{{User: "root", From: "203.0.113.7", Time: now.Unix() + 1}, {User: "root", From: "203.0.113.8", Time: now.Unix() + 1}, {User: "alice", From: "203.0.113.8", Time: now.Unix() + 1}}
+	r.Bin = "sha256:" + strings.Repeat("b", 64)
+	send(t, e, now.Add(time.Second), r)
+	send(t, e, now.Add(2*time.Second), r)
+	if count(t, e, "login_new_ip") != 1 || count(t, e, "bin_changed") != 1 {
+		t.Fatal("login or hash event count")
+	}
+	var records int
+	if err := e.Store.DB.QueryRow(`SELECT count(*) FROM logins`).Scan(&records); err != nil || records != 5 {
+		t.Fatal(records, err)
+	}
+	if err := e.Store.Cleanup(now.Add(8 * 24 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	r.Login = []proto.Login{{User: "root", From: "203.0.113.8", Time: now.Add(8 * 24 * time.Hour).Unix()}}
+	send(t, e, now.Add(8*24*time.Hour), r)
+	if count(t, e, "login_new_ip") != 0 {
+		t.Fatal("known IP lost on retention")
+	}
+}
+func TestSustainedResource(t *testing.T) {
+	e, now := setupEngine(t)
+	r := sampleReport()
+	r.Mem = [2]float64{90, 100}
+	r.Disk = [2]float64{90, 100}
+	for seconds := 0; seconds <= 1200; seconds += 5 {
+		send(t, e, now.Add(time.Duration(seconds)*time.Second), r)
+		want := 0
+		if seconds >= 300 {
+			want = 2
+		}
+		if count(t, e, "resource") != want {
+			t.Fatalf("at %ds got %d want %d", seconds, count(t, e, "resource"), want)
+		}
+	}
+	r.Mem[0] = 89
+	send(t, e, now.Add(1205*time.Second), r)
+	r.Mem[0] = 90
+	for seconds := 1210; seconds <= 1510; seconds += 5 {
+		send(t, e, now.Add(time.Duration(seconds)*time.Second), r)
+	}
+	if count(t, e, "resource") != 3 {
+		t.Fatal("resource reset")
+	}
+}
+func TestResourceGapAndThreshold(t *testing.T) {
+	e, now := setupEngine(t)
+	e.Config.MemoryThreshold = 95
+	r := sampleReport()
+	r.Mem = [2]float64{94, 100}
+	for seconds := 0; seconds <= 300; seconds += 5 {
+		send(t, e, now.Add(time.Duration(seconds)*time.Second), r)
+	}
+	if count(t, e, "resource") != 0 {
+		t.Fatal("threshold")
+	}
+	r.Mem[0] = 95
+	send(t, e, now.Add(305*time.Second), r)
+	send(t, e, now.Add(610*time.Second), r)
+	if count(t, e, "resource") != 0 {
+		t.Fatal("gap treated as sustained")
+	}
+}
+
+func TestResourceQueryExcludesOldHistory(t *testing.T) {
+	e, now := setupEngine(t)
+	// SQLite's dynamic typing lets an old malformed sample prove that the
+	// resource query never visits history outside its indexed time window.
+	if _, err := e.Store.DB.Exec(`INSERT INTO metrics(node,ts,mem_used,mem_total,disk_used,disk_total) VALUES(?,?,'old-invalid-value',100,'old-invalid-value',100)`, "node", now.Add(-24*time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	r := sampleReport()
+	r.Mem = [2]float64{90, 100}
+	r.Disk = [2]float64{90, 100}
+	for seconds := 0; seconds <= 300; seconds += 5 {
+		send(t, e, now.Add(time.Duration(seconds)*time.Second), r)
+	}
+	if count(t, e, "resource") != 2 {
+		t.Fatal("bounded query failed to detect sustained usage")
+	}
+}

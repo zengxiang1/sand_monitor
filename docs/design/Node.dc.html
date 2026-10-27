@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>望楼 · tyo-01</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans+Condensed:wght@500;600;700&amp;family=Noto+Sans+SC:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0;background:#F1F3F5}
+a{color:#1D5BC8}a:hover{color:#16479E}
+a:focus-visible,button:focus-visible{outline:2px solid #1D5BC8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F1F3F5; color: #16212C; font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <header style="background: #FFFFFF; border-bottom: 1px solid #D6DCE2">
+    <div style="max-width: 1320px; margin: 0 auto; padding: 8px 24px; min-height: 60px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px">
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span style="font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.04em">望楼</span>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #5A6775">mon.example.com</span>
+      </div>
+      <nav aria-label="主导航" style="display: flex; gap: 4px; flex-wrap: wrap">
+        <a href="Main.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">总览</a>
+        <a href="Node.dc.html" aria-current="page" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: {{accent}}; background: #E3ECFB">节点详情</a>
+        <a href="Billing.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">续费与流量</a>
+        <a href="PublicSettings.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">公开页</a>
+        <a href="Enroll.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">接入节点</a>
+      </nav>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #1D8754; background: #E2F3EA; padding: 4px 10px; border-radius: 99px">
+          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+          只读面板 · 无下行通道
+        </span>
+        <span style="font-size: 13px; color: #5A6775">admin · 已通过 TOTP</span>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width: 1320px; margin: 0 auto; padding: 22px 24px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+
+    <nav aria-label="位置" style="font-size: 13px; color: #5A6775; display: flex; gap: 8px">
+      <a href="Main.dc.html" style="color: #5A6775">总览</a><span aria-hidden="true">/</span><span style="color: #16212C">tyo-01</span>
+    </nav>
+
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 24px">
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+          <h1 style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 30px; font-weight: 600; line-height: 1.2">tyo-01</h1>
+          <span style="font-size: 12.5px; font-weight: 500; padding: 2px 10px; border-radius: 99px; color: {{status.c}}; background: {{status.bg}}">{{status.label}}</span>
+          <sc-if value="{{muted}}" hint-placeholder-val="{{ false }}">
+            <span style="font-size: 12.5px; padding: 2px 10px; border-radius: 99px; color: #3B4754; background: #E8ECF0">告警已静音至 15:32</span>
+          </sc-if>
+        </div>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">东京 · 1C1G · Ubuntu 24.04 · 198.51.100.24 · 每 5 秒上报 · 最近 4 秒前</span>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap">
+        <button type="button" onClick="{{toggleMute}}" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9D1D9; background: #FFFFFF; color: #16212C; font: inherit; cursor: pointer">{{muteLabel}}</button>
+        <button type="button" onClick="{{askRevoke}}" disabled="{{revoked}}" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C3352B; background: #FFFFFF; color: #C3352B; font: inherit; font-weight: 500; cursor: pointer; opacity: {{revokeOpacity}}">吊销公钥</button>
+      </div>
+    </div>
+
+    <sc-if value="{{confirming}}" hint-placeholder-val="{{ false }}">
+      <div role="alertdialog" aria-labelledby="rv-h" style="background: #FBE5E3; border: 1px solid #E6A8A2; border-radius: 8px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center">
+        <div style="flex: 999 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+          <strong id="rv-h" style="font-weight: 600; color: #8E2019">吊销 tyo-01 的公钥？</strong>
+          <span style="color: #5A2520">之后这台机器的上报会被拒收，面板不会再显示它的新数据。这一步只改面板，不会碰服务器本身。要恢复，需要在服务器上重新生成密钥并登记。</span>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <button type="button" onClick="{{cancelRevoke}}" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #D49A94; background: transparent; color: #5A2520; font: inherit; cursor: pointer">取消</button>
+          <button type="button" onClick="{{doRevoke}}" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 0; background: #C3352B; color: #FFFFFF; font: inherit; font-weight: 500; cursor: pointer">确认吊销</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{revoked}}" hint-placeholder-val="{{ false }}">
+      <div role="status" style="background: #E8ECF0; border: 1px solid #C9D1D9; border-radius: 8px; padding: 14px 18px; color: #3B4754">
+        公钥已吊销（14:33:02）。tyo-01 的上报将被拒收。下一步：登录这台服务器排查，必要时重装系统后重新接入。
+      </div>
+    </sc-if>
+
+    <div style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr))">
+      <sc-for list="{{snapshot}}" as="k" hint-placeholder-count="6">
+        <div style="padding: 14px 18px; border-right: 1px solid #E4E8EC; border-bottom: 1px solid #E4E8EC; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12.5px; color: #5A6775">{{k.k}}</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums">{{k.v}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <section aria-labelledby="hist-h" style="display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px">
+        <h2 id="hist-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">历史</h2>
+        <div role="group" aria-label="时间范围" style="display: inline-flex; border: 1px solid #C9D1D9; border-radius: 6px; overflow: hidden; background: #FFFFFF">
+          <sc-for list="{{ranges}}" as="g" hint-placeholder-count="4">
+            <button type="button" aria-pressed="{{g.pressed}}" onClick="{{g.pick}}" style="min-height: 36px; min-width: 56px; padding: 0 12px; border: 0; border-right: 1px solid #E4E8EC; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; cursor: pointer; background: {{g.bg}}; color: {{g.fg}}">{{g.label}}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 14px">
+        <sc-for list="{{charts}}" as="c" hint-placeholder-count="4">
+          <figure style="margin: 0; background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0">
+            <figcaption style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap">
+              <span style="font-weight: 600">{{c.title}}</span>
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">{{c.summary}}</span>
+            </figcaption>
+            <svg viewBox="0 0 600 190" role="img" aria-label="{{c.aria}}" style="width: 100%; height: auto; display: block">
+              <line x1="44" y1="14" x2="592" y2="14" style="stroke: #E4E8EC; stroke-width: 1"></line>
+              <line x1="44" y1="87" x2="592" y2="87" style="stroke: #E4E8EC; stroke-width: 1"></line>
+              <line x1="44" y1="160" x2="592" y2="160" style="stroke: #C9D1D9; stroke-width: 1"></line>
+              <text x="38" y="18" style="fill: #5A6775; font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-anchor: end">{{c.yTop}}</text>
+              <text x="38" y="91" style="fill: #5A6775; font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-anchor: end">{{c.yMid}}</text>
+              <text x="38" y="164" style="fill: #5A6775; font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-anchor: end">0</text>
+              <polygon points="{{c.area}}" style="fill: #E3ECFB"></polygon>
+              <polyline points="{{c.line}}" style="fill: none; stroke: {{accent}}; stroke-width: 1.75; stroke-linejoin: round"></polyline>
+              <polyline points="{{c.line2}}" style="fill: none; stroke: #C9780E; stroke-width: 1.5; stroke-dasharray: 5 3; stroke-linejoin: round"></polyline>
+              <circle cx="{{c.endX}}" cy="{{c.endY}}" r="3.5" style="fill: {{accent}}"></circle>
+              <sc-for list="{{xTicks}}" as="t" hint-placeholder-count="5">
+                <text x="{{t.x}}" y="182" style="fill: #5A6775; font-family: 'IBM Plex Mono', 'Noto Sans SC', monospace; font-size: 11px; text-anchor: {{t.anchor}}">{{t.label}}</text>
+              </sc-for>
+            </svg>
+            <sc-if value="{{c.legend}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; gap: 16px; font-size: 12px; color: #5A6775">
+                <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 16px; height: 2px; background: {{accent}}"></span>下行</span>
+                <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 16px; height: 0; border-top: 2px dashed #C9780E"></span>上行</span>
+              </div>
+            </sc-if>
+          </figure>
+        </sc-for>
+      </div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start">
+      <section aria-labelledby="id-h" style="flex: 1 1 400px; min-width: 0; background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px">
+        <div style="padding: 14px 18px; border-bottom: 1px solid #D6DCE2">
+          <h2 id="id-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">身份与完整性</h2>
+        </div>
+        <dl style="margin: 0; padding: 4px 18px 14px; display: flex; flex-direction: column">
+          <sc-for list="{{identity}}" as="d" hint-placeholder-count="6">
+            <div style="display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-bottom: 1px solid #E4E8EC">
+              <dt style="font-size: 12.5px; color: #5A6775">{{d.k}}</dt>
+              <dd style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; overflow-wrap: anywhere; color: {{d.color}}">{{d.v}}</dd>
+            </div>
+          </sc-for>
+        </dl>
+      </section>
+
+      <section aria-labelledby="login-h" style="flex: 999 1 560px; min-width: 0; background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px">
+        <div style="padding: 14px 18px; border-bottom: 1px solid #D6DCE2; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap">
+          <h2 id="login-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">登录记录</h2>
+          <span style="font-size: 12.5px; color: #5A6775">来自 wtmp，随指标一起上报</span>
+        </div>
+        <div style="overflow-x: auto">
+          <div style="min-width: 560px">
+            <div style="display: grid; grid-template-columns: 120px 80px minmax(130px, 1fr) 64px 110px; gap: 16px; padding: 9px 18px; background: #F1F3F5; border-bottom: 1px solid #D6DCE2; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; color: #5A6775">
+              <span>时间</span><span>用户</span><span>来源 IP</span><span>终端</span><span>判断</span>
+            </div>
+            <sc-for list="{{logins}}" as="l" hint-placeholder-count="5">
+              <div style="display: grid; grid-template-columns: 120px 80px minmax(130px, 1fr) 64px 110px; gap: 16px; align-items: center; padding: 11px 18px; border-bottom: 1px solid #E4E8EC; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; background: {{l.rowBg}}">
+                <span style="color: #3B4754">{{l.t}}</span>
+                <span>{{l.u}}</span>
+                <span style="font-weight: {{l.weight}}">{{l.ip}}</span>
+                <span style="color: #5A6775">{{l.tty}}</span>
+                <span style="justify-self: start; font-family: 'Noto Sans SC', sans-serif; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 4px; color: {{l.tone.c}}; background: {{l.tone.bg}}">{{l.tag}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="padding: 12px 18px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center">
+          <button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #C9D1D9; background: #FFFFFF; color: #16212C; font: inherit; font-size: 13px; cursor: pointer">将 203.0.113.7 标为常用</button>
+          <span style="font-size: 12.5px; color: #5A6775">常用 IP 的登录不再触发告警。</span>
+        </div>
+      </section>
+    </div>
+
+    <p style="margin: 0; font-size: 12.5px; color: #5A6775">本页的静音、吊销等操作只改变面板上的记录，不会连接 tyo-01。</p>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1D5BC8","options":["#1D5BC8","#0F6E78","#4B45B8"]},"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  gen(seed, base, amp, n, lo, hi) {
+    var out = [], x = seed;
+    for (var i = 0; i < n; i++) {
+      x = (x * 9301 + 49297) % 233280;
+      var r = x / 233280;
+      out.push(Math.max(lo, Math.min(hi, base + (r - 0.5) * amp + Math.sin(i / 5 + seed) * amp * 0.35)));
+    }
+    return out;
+  }
+  pts(vals, max) {
+    var x0 = 44, x1 = 592, y0 = 14, y1 = 160;
+    return vals.map(function (v, i) {
+      return (x0 + i * (x1 - x0) / (vals.length - 1)).toFixed(1) + ',' + (y1 - v / max * (y1 - y0)).toFixed(1);
+    });
+  }
+  renderVals() {
+    var self = this;
+    var st = this.state || {};
+    var accent = this.props.accent ?? '#1D5BC8';
+    var range = st.range || '24h';
+    var revoked = !!st.revoked;
+    var muted = !!st.muted;
+    var rangeDefs = [
+      { k: '1h', seed: 2, ticks: ['13:32', '13:47', '14:02', '14:17', '现在'] },
+      { k: '24h', seed: 5, ticks: ['昨天 14:30', '20:30', '02:30', '08:30', '现在'] },
+      { k: '7d', seed: 9, ticks: ['10-20', '10-22', '10-24', '10-26', '现在'] },
+      { k: '30d', seed: 14, ticks: ['09-27', '10-05', '10-13', '10-21', '现在'] }
+    ];
+    var cur = rangeDefs.filter(function (r) { return r.k === range; })[0];
+    var n = 60, s = cur.seed;
+
+    var cpu = this.gen(s + 1, 22, 26, n, 3, 96); cpu[n - 1] = 38; cpu[n - 8] = 74;
+    var mem = this.gen(s + 2, 60, 8, n, 40, 95); mem[n - 1] = 63;
+    var dn = this.gen(s + 3, 1.2, 1.4, n, 0.05, 3.9); dn[n - 1] = 1.1;
+    var up = this.gen(s + 4, 0.4, 0.5, n, 0.02, 3.9); up[n - 1] = 0.32;
+    var disk = []; for (var i = 0; i < n; i++) disk.push(12.6 + i * 0.6 / (n - 1) + ((i * 7) % 5) * 0.01);
+
+    function chart(title, summary, aria, vals, max, yTop, yMid, vals2) {
+      var p = self.pts(vals, max);
+      var last = p[p.length - 1].split(',');
+      return {
+        title: title, summary: summary, aria: aria, yTop: yTop, yMid: yMid,
+        line: p.join(' '), area: '44,160 ' + p.join(' ') + ' 592,160',
+        line2: vals2 ? self.pts(vals2, max).join(' ') : '',
+        endX: last[0], endY: last[1], legend: !!vals2
+      };
+    }
+    var charts = [
+      chart('CPU', '现在 38% · 平均 21% · 峰值 74%', 'CPU 使用率走势，当前 38%', cpu, 100, '100%', '50%'),
+      chart('内存', '645 / 1024 MB · 63%', '内存使用率走势，当前 63%', mem, 100, '100%', '50%'),
+      chart('网络', '↓ 1.1 MB/s · ↑ 320 KB/s', '网络流量走势，下行 1.1 MB/s，上行 320 KB/s', dn, 4, '4 MB/s', '2'),
+      chart('磁盘', '13.2 / 40 GB · 33%', '磁盘占用走势，当前 13.2 GB', disk, 40, '40 GB', '20')
+    ];
+    var xs = [44, 181, 318, 455, 592];
+    var xTicks = cur.ticks.map(function (l, i) {
+      return { label: l, x: xs[i], anchor: i === 0 ? 'start' : i === 4 ? 'end' : 'middle' };
+    });
+    var ranges = rangeDefs.map(function (r) {
+      var on = r.k === range;
+      return { label: r.k, pressed: on ? 'true' : 'false', bg: on ? accent : '#FFFFFF', fg: on ? '#FFFFFF' : '#16212C', pick: function () { self.setState({ range: r.k }); } };
+    });
+    var T = {
+      ok: { c: '#1D8754', bg: '#E2F3EA' },
+      warn: { c: '#8F5A0B', bg: '#FBF0DC' },
+      info: { c: '#3B4754', bg: '#E8ECF0' }
+    };
+    return {
+      accent: accent,
+      status: revoked ? { label: '已吊销', c: '#3B4754', bg: '#E8ECF0' } : { label: '注意 · 新登录', c: '#8F5A0B', bg: '#FBF0DC' },
+      muted: muted,
+      muteLabel: muted ? '取消静音' : '静音告警 1 小时',
+      toggleMute: function () { self.setState({ muted: !muted }); },
+      confirming: !!st.confirming && !revoked,
+      revoked: revoked,
+      revokeOpacity: revoked ? 0.45 : 1,
+      askRevoke: function () { self.setState({ confirming: true }); },
+      cancelRevoke: function () { self.setState({ confirming: false }); },
+      doRevoke: function () { self.setState({ confirming: false, revoked: true }); },
+      snapshot: [
+        { k: '负载 1/5/15', v: '0.42 0.31 0.25' },
+        { k: 'CPU', v: '38%' },
+        { k: '内存', v: '645 / 1024 MB' },
+        { k: 'Swap', v: '0 / 512 MB' },
+        { k: '连接', v: 'TCP 41 · UDP 6' },
+        { k: '运行时间', v: '12 天 4 小时' }
+      ],
+      ranges: ranges,
+      charts: charts,
+      xTicks: xTicks,
+      identity: [
+        { k: '公钥指纹', v: 'SHA256:Qm4tX0rK9vYp2LcN8eWb1sZ7hJ3dFq6uA5iRo0Tg', color: '#16212C' },
+        { k: '登记时间', v: '2026-10-03 21:14 · 由 admin 核对指纹后启用', color: '#16212C' },
+        { k: 'agent 版本', v: '0.3.1 · linux/amd64', color: '#16212C' },
+        { k: '二进制哈希', v: 'sha256:4b1e…9c02 · 与发布版一致', color: '#1D8754' },
+        { k: '上报序号', v: '184467 · 无重放、无跳号', color: '#16212C' },
+        { k: '最近上报来源', v: '198.51.100.24（与登记时一致）', color: '#16212C' }
+      ],
+      logins: [
+        { t: '今天 14:31', u: 'root', ip: '203.0.113.7', tty: 'pts/0', tag: '首次出现', tone: T.warn, rowBg: '#FDF7EC', weight: 600 },
+        { t: '昨天 09:12', u: 'deploy', ip: '198.51.100.8', tty: 'pts/0', tag: '常用', tone: T.ok, rowBg: '#FFFFFF', weight: 400 },
+        { t: '10-24 20:47', u: 'deploy', ip: '198.51.100.8', tty: 'pts/1', tag: '常用', tone: T.ok, rowBg: '#FFFFFF', weight: 400 },
+        { t: '10-21 08:03', u: 'root', ip: '198.51.100.8', tty: 'pts/0', tag: '常用', tone: T.ok, rowBg: '#FFFFFF', weight: 400 },
+        { t: '10-03 21:10', u: 'root', ip: '198.51.100.8', tty: 'pts/0', tag: '接入时', tone: T.info, rowBg: '#FFFFFF', weight: 400 }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

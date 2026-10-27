@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>望楼 · 公开页设置</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans+Condensed:wght@500;600;700&amp;family=Noto+Sans+SC:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0;background:#F1F3F5}
+a{color:#1D5BC8}a:hover{color:#16479E}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #1D5BC8;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F1F3F5; color: #16212C; font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; font-size: 14px; line-height: 1.6">
+
+  <header style="background: #FFFFFF; border-bottom: 1px solid #D6DCE2">
+    <div style="max-width: 1320px; margin: 0 auto; padding: 8px 24px; min-height: 60px; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px">
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span style="font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: 0.04em">望楼</span>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #5A6775">mon.example.com</span>
+      </div>
+      <nav aria-label="主导航" style="display: flex; gap: 4px; flex-wrap: wrap">
+        <a href="Main.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">总览</a>
+        <a href="Node.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">节点详情</a>
+        <a href="Billing.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">续费与流量</a>
+        <a href="PublicSettings.dc.html" aria-current="page" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: {{accent}}; background: #E3ECFB">公开页</a>
+        <a href="Enroll.dc.html" style="padding: 10px 14px; border-radius: 6px; text-decoration: none; font-weight: 500; color: #16212C">接入节点</a>
+      </nav>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #1D8754; background: #E2F3EA; padding: 4px 10px; border-radius: 99px">
+          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+          只读面板 · 无下行通道
+        </span>
+        <span style="font-size: 13px; color: #5A6775">admin · 已通过 TOTP</span>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width: 1320px; margin: 0 auto; padding: 28px 24px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 28px; font-weight: 700">公开页设置</h1>
+        <span style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; color: #5A6775">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1D8754"></span>已发布</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">status.example.com</span>
+          <span>上次导出 14:32</span>
+        </span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+        <a href="Status.dc.html" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9D1D9; background: #FFFFFF; color: #16212C; text-decoration: none; display: inline-flex; align-items: center; font-weight: 500">预览公开页</a>
+        <button type="button" onClick="{{publish}}" style="min-height: 40px; padding: 0 18px; border-radius: 6px; border: 0; background: {{publishBg}}; color: {{publishFg}}; font: inherit; font-weight: 600; cursor: pointer">保存并发布</button>
+      </div>
+    </div>
+
+    <sc-if value="{{dirty}}" hint-placeholder-val="{{ false }}">
+      <div role="status" style="padding: 10px 16px; border-radius: 6px; background: #FBF0DC; border: 1px solid #E8CF9F; color: #4A3A1E; font-size: 13.5px">有未发布的修改。点“保存并发布”后，下一次导出时访客就能看到。</div>
+    </sc-if>
+    <sc-if value="{{published}}" hint-placeholder-val="{{ false }}">
+      <div role="status" style="padding: 10px 16px; border-radius: 6px; background: #E2F3EA; border: 1px solid #A9D6BD; color: #14532F; font-size: 13.5px">已发布。公开页会在 30 秒内更新。</div>
+    </sc-if>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+      <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 24px">
+
+        <section aria-labelledby="nodes-h" style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; overflow: hidden">
+          <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 14px 18px; border-bottom: 1px solid #D6DCE2">
+            <h2 id="nodes-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">公开哪些节点</h2>
+            <span style="font-size: 12.5px; color: #5A6775">已公开 <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; color: #16212C">{{pubCount}} / {{nodeCount}}</span> · 显示名会替换内部名</span>
+          </div>
+          <div style="overflow-x: auto">
+            <div style="min-width: 600px">
+              <div style="display: grid; grid-template-columns: 64px 110px minmax(200px, 1fr) 120px; gap: 16px; padding: 9px 18px; background: #F1F3F5; border-bottom: 1px solid #D6DCE2; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; color: #5A6775">
+                <span>公开</span><span>内部名</span><span>公开显示名</span><span>当前状态</span>
+              </div>
+              <sc-for list="{{nodes}}" as="n" hint-placeholder-count="7">
+                <div style="display: grid; grid-template-columns: 64px 110px minmax(200px, 1fr) 120px; gap: 16px; align-items: center; padding: 8px 18px; border-bottom: 1px solid #E4E8EC; background: {{n.rowBg}}">
+                  <input id="{{n.cbId}}" type="checkbox" checked="{{n.pub}}" onChange="{{n.togglePub}}" aria-label="{{n.cbLabel}}" style="width: 18px; height: 18px; margin: 0 0 0 4px; accent-color: {{accent}}; cursor: pointer">
+                  <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: {{n.innerColor}}">{{n.name}}</span>
+                  <input id="{{n.inId}}" type="text" value="{{n.alias}}" onChange="{{n.onAlias}}" disabled="{{n.off}}" aria-label="{{n.inLabel}}" style="min-height: 38px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: {{n.inputBg}}">
+                  <span style="justify-self: start; font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 99px; color: {{n.tone.c}}; background: {{n.tone.bg}}">{{n.tone.label}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <p style="margin: 0; padding: 12px 18px; font-size: 12.5px; color: #5A6775">新接入的节点默认不公开。显示名里不要写 IP、服务商或用途，比如“数据库主库”。</p>
+        </section>
+
+        <section aria-labelledby="fields-h" style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px">
+          <div style="padding: 14px 18px; border-bottom: 1px solid #D6DCE2">
+            <h2 id="fields-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">显示哪些信息</h2>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr))">
+            <ul style="list-style: none; margin: 0; padding: 4px 18px 10px; border-right: 1px solid #E4E8EC">
+              <sc-for list="{{fields}}" as="f" hint-placeholder-count="7">
+                <li style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #E4E8EC">
+                  <div style="display: flex; flex-direction: column; min-width: 0">
+                    <span id="{{f.lid}}" style="font-weight: 500">{{f.label}}</span>
+                    <span style="font-size: 12.5px; color: #5A6775">{{f.hint}}</span>
+                  </div>
+                  <button type="button" role="switch" aria-checked="{{f.checked}}" aria-labelledby="{{f.lid}}" onClick="{{f.toggle}}" style="flex: none; width: 44px; height: 26px; padding: 0; border: 0; border-radius: 13px; cursor: pointer; position: relative; background: {{f.track}}">
+                    <span style="position: absolute; top: 3px; left: {{f.knob}}; width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(22, 33, 44, 0.3)"></span>
+                  </button>
+                </li>
+              </sc-for>
+            </ul>
+            <div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 10px">
+              <span style="display: flex; align-items: center; gap: 8px; font-weight: 500">
+                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" style="fill: none; stroke: #5A6775; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+                始终不公开
+              </span>
+              <span style="font-size: 12.5px; color: #5A6775">这些数据不会进入公开页的导出文件，这里没有开关。</span>
+              <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+                <sc-for list="{{locked}}" as="l" hint-placeholder-count="6">
+                  <li style="display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #E4E8EC; font-size: 13.5px">
+                    <span>{{l.k}}</span><span style="font-size: 12.5px; color: #5A6775">{{l.v}}</span>
+                  </li>
+                </sc-for>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="ann-h" style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px">
+          <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 14px 18px; border-bottom: 1px solid #D6DCE2">
+            <h2 id="ann-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 18px; font-weight: 600">公告</h2>
+            <span style="font-size: 12.5px; color: #5A6775">按时间倒序显示在公开页底部</span>
+          </div>
+
+          <div style="padding: 18px; display: flex; flex-direction: column; gap: 12px; background: #F7F9FA; border-bottom: 1px solid #E4E8EC">
+            <span style="font-weight: 600">{{formTitle}}</span>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px 14px">
+              <div style="display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1">
+                <label for="a-title" style="font-size: 13px; font-weight: 500">标题</label>
+                <input id="a-title" type="text" value="{{form.title}}" onChange="{{onTitle}}" placeholder="例如：北京 · 01 离线" style="min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="a-node" style="font-size: 13px; font-weight: 500">相关节点</label>
+                <select id="a-node" value="{{form.node}}" onChange="{{onNode}}" style="min-height: 40px; padding: 0 10px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+                  <option value="">全部 / 不指定</option>
+                  <sc-for list="{{nodeOptions}}" as="o" hint-placeholder-count="6">
+                    <option value="{{o.v}}">{{o.label}}</option>
+                  </sc-for>
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="a-status" style="font-size: 13px; font-weight: 500">状态</label>
+                <select id="a-status" value="{{form.status}}" onChange="{{onStatus}}" style="min-height: 40px; padding: 0 10px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+                  <option value="investigating">排查中</option>
+                  <option value="monitoring">已修复，观察中</option>
+                  <option value="resolved">已恢复</option>
+                  <option value="scheduled">计划维护</option>
+                  <option value="done">维护完成</option>
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px">
+                <label for="a-time" style="font-size: 13px; font-weight: 500">时间</label>
+                <input id="a-time" type="text" value="{{form.time}}" onChange="{{onTime}}" style="min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #16212C; background: #FFFFFF">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1">
+                <label for="a-body" style="font-size: 13px; font-weight: 500">内容</label>
+                <textarea id="a-body" rows="3" value="{{form.body}}" onChange="{{onBody}}" placeholder="访客能看懂的说明，不写内部细节" style="padding: 10px 12px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF; resize: vertical"></textarea>
+              </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <button type="button" onClick="{{submit}}" disabled="{{cantSubmit}}" style="min-height: 40px; padding: 0 16px; border-radius: 6px; border: 0; background: {{submitBg}}; color: {{submitFg}}; font: inherit; font-weight: 600; cursor: pointer">{{submitLabel}}</button>
+              <sc-if value="{{editing}}" hint-placeholder-val="{{ false }}">
+                <button type="button" onClick="{{cancelEdit}}" style="min-height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #C9D1D9; background: #FFFFFF; color: #16212C; font: inherit; cursor: pointer">取消编辑</button>
+              </sc-if>
+              <sc-if value="{{cantSubmit}}" hint-placeholder-val="{{ false }}">
+                <span style="font-size: 12.5px; color: #5A6775">填写标题和内容后才能添加。</span>
+              </sc-if>
+            </div>
+          </div>
+
+          <ol style="list-style: none; margin: 0; padding: 0">
+            <sc-for list="{{anns}}" as="a" hint-placeholder-count="3">
+              <li style="padding: 14px 18px; border-bottom: 1px solid #E4E8EC; display: flex; flex-direction: column; gap: 6px; background: {{a.rowBg}}">
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px">
+                  <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: #5A6775">{{a.time}}</span>
+                  <strong style="font-weight: 600">{{a.title}}</strong>
+                  <span style="font-size: 12px; font-weight: 500; padding: 1px 8px; border-radius: 4px; color: {{a.tone.c}}; background: {{a.tone.bg}}">{{a.tone.label}}</span>
+                  <span style="margin-left: auto; display: flex; gap: 6px">
+                    <button type="button" onClick="{{a.edit}}" style="min-height: 34px; padding: 0 12px; border-radius: 6px; border: 1px solid #C9D1D9; background: #FFFFFF; color: #16212C; font: inherit; font-size: 13px; cursor: pointer">编辑</button>
+                    <button type="button" onClick="{{a.askDelete}}" style="min-height: 34px; padding: 0 12px; border-radius: 6px; border: 1px solid #E6A8A2; background: #FFFFFF; color: #C3352B; font: inherit; font-size: 13px; cursor: pointer">删除</button>
+                  </span>
+                </div>
+                <p style="margin: 0; color: #3B4754">{{a.body}}</p>
+                <sc-if value="{{a.confirming}}" hint-placeholder-val="{{ false }}">
+                  <div role="alertdialog" aria-label="确认删除公告" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border-radius: 6px; background: #FBE5E3">
+                    <span style="flex: 1 1 240px; color: #5A2520; font-size: 13px">删除后公开页上也会消失，不能恢复。</span>
+                    <button type="button" onClick="{{a.cancelDelete}}" style="min-height: 34px; padding: 0 12px; border-radius: 6px; border: 1px solid #D49A94; background: transparent; color: #5A2520; font: inherit; font-size: 13px; cursor: pointer">保留</button>
+                    <button type="button" onClick="{{a.doDelete}}" style="min-height: 34px; padding: 0 12px; border-radius: 6px; border: 0; background: #C3352B; color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">删除公告</button>
+                  </div>
+                </sc-if>
+              </li>
+            </sc-for>
+          </ol>
+        </section>
+      </div>
+
+      <aside style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <section aria-labelledby="basic-h" style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+          <h2 id="basic-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 17px; font-weight: 600">基本设置</h2>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="p-title" style="font-size: 13px; font-weight: 500">页面标题</label>
+            <input id="p-title" type="text" value="{{pageTitle}}" onChange="{{onPageTitle}}" style="min-height: 40px; padding: 0 12px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="p-interval" style="font-size: 13px; font-weight: 500">导出间隔</label>
+            <select id="p-interval" value="{{interval}}" onChange="{{onInterval}}" style="min-height: 40px; padding: 0 10px; border: 1px solid #C9D1D9; border-radius: 6px; font: inherit; color: #16212C; background: #FFFFFF">
+              <option value="30">每 30 秒</option>
+              <option value="60">每 1 分钟</option>
+              <option value="300">每 5 分钟</option>
+            </select>
+            <span style="font-size: 12.5px; color: #5A6775">间隔越长，访客越难从数据变化推断你的操作时间。</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 13px; font-weight: 500">访问方式</span>
+            <sc-for list="{{access}}" as="x" hint-placeholder-count="2">
+              <label for="{{x.id}}" style="display: flex; align-items: flex-start; gap: 10px; min-height: 40px; padding: 8px 10px; border: 1px solid {{x.border}}; border-radius: 6px; cursor: pointer; background: {{x.bg}}">
+                <input id="{{x.id}}" type="radio" name="access" checked="{{x.checked}}" onChange="{{x.pick}}" style="margin-top: 4px; accent-color: {{accent}}">
+                <span style="display: flex; flex-direction: column"><span style="font-weight: 500">{{x.label}}</span><span style="font-size: 12.5px; color: #5A6775">{{x.hint}}</span></span>
+              </label>
+            </sc-for>
+          </div>
+        </section>
+
+        <section aria-labelledby="how-h" style="background: #FFFFFF; border: 1px solid #D6DCE2; border-radius: 8px; padding: 18px; display: flex; flex-direction: column; gap: 10px">
+          <h2 id="how-h" style="margin: 0; font-family: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif; font-size: 17px; font-weight: 600">公开页怎么生成</h2>
+          <p style="margin: 0; font-size: 13.5px; color: #3B4754">面板按上面的设置导出一份 <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">status.json</span>，连同静态页面一起放到 status.example.com。</p>
+          <p style="margin: 0; font-size: 13.5px; color: #3B4754">公开页所在的机器上没有面板账号、没有接收端，也拿不到任何密钥。它被攻破，最多能篡改这一页的显示内容。</p>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#1D5BC8","options":["#1D5BC8","#0F6E78","#4B45B8"]},"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  defaults() {
+    return {
+      nodes: [
+        { name: 'hk-01', alias: '香港 · 01', pub: true, s: 'ok' },
+        { name: 'tyo-01', alias: '东京 · 01', pub: true, s: 'warn' },
+        { name: 'sg-01', alias: '新加坡 · 01', pub: true, s: 'ok' },
+        { name: 'la-01', alias: '洛杉矶 · 01', pub: true, s: 'warn' },
+        { name: 'fra-01', alias: '法兰克福 · 01', pub: true, s: 'ok' },
+        { name: 'ams-01', alias: '阿姆斯特丹 · 01', pub: false, s: 'ok' },
+        { name: 'bj-01', alias: '北京 · 01', pub: true, s: 'crit' }
+      ],
+      fields: { specs: true, usage: true, net: true, uptime: true, avail: true, reason: true, region: true },
+      anns: [
+        { id: 3, time: '10-27 14:35', title: '北京 · 01 离线', node: 'bj-01', status: 'investigating', body: '已收到告警，正在确认原因。恢复后会在这里更新。' },
+        { id: 2, time: '10-19 03:00', title: '法兰克福 · 01 计划维护', node: 'fra-01', status: 'done', body: '系统升级后重启，停机约 3 分钟。' },
+        { id: 1, time: '10-02 21:40', title: '洛杉矶 · 01 网络中断', node: 'la-01', status: 'resolved', body: '机房上游线路故障，中断 1 小时 12 分钟。' }
+      ]
+    };
+  }
+  emptyForm() { return { title: '', node: '', status: 'investigating', time: '10-27 14:40', body: '' }; }
+  renderVals() {
+    var self = this;
+    var st = this.state || {};
+    var d = this.defaults();
+    var accent = this.props.accent ?? '#1D5BC8';
+    var nodes = st.nodes || d.nodes;
+    var fields = st.fields || d.fields;
+    var anns = st.anns || d.anns;
+    var form = st.form || this.emptyForm();
+    var editId = st.editId || null;
+    var change = function (patch) { patch.dirty = true; patch.published = false; self.setState(patch); };
+
+    var S = {
+      ok: { label: '正常', c: '#1D8754', bg: '#E2F3EA' },
+      warn: { label: '注意（公开页显示正常）', c: '#8F5A0B', bg: '#FBF0DC' },
+      crit: { label: '离线', c: '#C3352B', bg: '#FBE5E3' }
+    };
+    var nodeRows = nodes.map(function (n, i) {
+      return {
+        name: n.name, alias: n.alias, pub: n.pub, off: !n.pub,
+        tone: n.s === 'warn' ? { label: '注意', c: '#8F5A0B', bg: '#FBF0DC' } : S[n.s],
+        cbId: 'pub-' + n.name, inId: 'alias-' + n.name,
+        cbLabel: '公开 ' + n.name, inLabel: n.name + ' 的公开显示名',
+        rowBg: n.pub ? '#FFFFFF' : '#F7F9FA',
+        innerColor: n.pub ? '#16212C' : '#5A6775',
+        inputBg: n.pub ? '#FFFFFF' : '#EEF1F4',
+        togglePub: function () {
+          var next = nodes.map(function (x, j) { return j === i ? Object.assign({}, x, { pub: !x.pub }) : x; });
+          change({ nodes: next });
+        },
+        onAlias: function (e) {
+          var v = e.target.value;
+          var next = nodes.map(function (x, j) { return j === i ? Object.assign({}, x, { alias: v }) : x; });
+          change({ nodes: next });
+        }
+      };
+    });
+
+    var fieldDefs = [
+      { k: 'region', label: '地区', hint: '只到城市，例如“香港”' },
+      { k: 'specs', label: '配置', hint: 'CPU 核数和内存大小' },
+      { k: 'usage', label: 'CPU / 内存 / 磁盘占用', hint: '百分比，不含具体容量' },
+      { k: 'net', label: '网络速率', hint: '实时上行和下行速度' },
+      { k: 'uptime', label: '运行时长', hint: '取整到天，例如“已运行 12 天”' },
+      { k: 'avail', label: '45 天可用率', hint: '每天一格的在线记录' },
+      { k: 'reason', label: '离线提示', hint: '离线时显示“最近一次上报时间”' }
+    ];
+    var fieldRows = fieldDefs.map(function (f) {
+      var on = !!fields[f.k];
+      return {
+        label: f.label, hint: f.hint, lid: 'fl-' + f.k,
+        checked: on ? 'true' : 'false',
+        track: on ? accent : '#B7C0C9', knob: on ? '21px' : '3px',
+        toggle: function () { var nf = Object.assign({}, fields); nf[f.k] = !on; change({ fields: nf }); }
+      };
+    });
+
+    var A = {
+      investigating: { label: '排查中', c: '#8F5A0B', bg: '#FBF0DC' },
+      monitoring: { label: '观察中', c: '#1D5BC8', bg: '#E3ECFB' },
+      resolved: { label: '已恢复', c: '#1D8754', bg: '#E2F3EA' },
+      scheduled: { label: '计划维护', c: '#3B4754', bg: '#E8ECF0' },
+      done: { label: '维护完成', c: '#1D8754', bg: '#E2F3EA' }
+    };
+    var annRows = anns.map(function (a) {
+      return {
+        time: a.time, title: a.title, body: a.body, tone: A[a.status],
+        rowBg: a.id === editId ? '#F5F8FE' : '#FFFFFF',
+        confirming: st.delId === a.id,
+        edit: function () { self.setState({ editId: a.id, delId: null, form: { title: a.title, node: a.node, status: a.status, time: a.time, body: a.body } }); },
+        askDelete: function () { self.setState({ delId: a.id }); },
+        cancelDelete: function () { self.setState({ delId: null }); },
+        doDelete: function () {
+          change({ anns: anns.filter(function (x) { return x.id !== a.id; }), delId: null, editId: editId === a.id ? null : editId, form: editId === a.id ? self.emptyForm() : form });
+        }
+      };
+    });
+    var setForm = function (k) {
+      return function (e) { var f = Object.assign({}, form); f[k] = e.target.value; self.setState({ form: f }); };
+    };
+    var cant = !form.title.trim() || !form.body.trim();
+    var access = [
+      { v: 'public', label: '任何人可访问', hint: '适合给客户或朋友看' },
+      { v: 'token', label: '带口令的链接', hint: '链接末尾附一段随机口令，可随时更换' }
+    ].map(function (x) {
+      var on = (st.access || 'public') === x.v;
+      return { id: 'acc-' + x.v, label: x.label, hint: x.hint, checked: on, border: on ? accent : '#C9D1D9', bg: on ? '#F5F8FE' : '#FFFFFF', pick: function () { change({ access: x.v }); } };
+    });
+    var dirty = !!st.dirty;
+
+    return {
+      accent: accent,
+      dirty: dirty,
+      published: !!st.published,
+      publishBg: dirty ? accent : '#E8ECF0',
+      publishFg: dirty ? '#FFFFFF' : '#3B4754',
+      publish: function () { self.setState({ dirty: false, published: true }); },
+      nodes: nodeRows,
+      pubCount: nodes.filter(function (n) { return n.pub; }).length,
+      nodeCount: nodes.length,
+      fields: fieldRows,
+      locked: [
+        { k: 'IP 地址', v: '公网和内网' },
+        { k: '内部节点名', v: '只显示公开显示名' },
+        { k: '服务商、价格、到期日', v: '续费与流量页的全部内容' },
+        { k: '流量额度和已用量', v: '' },
+        { k: '登录记录', v: '用户名和来源 IP' },
+        { k: '公钥指纹、agent 和系统版本', v: '避免暴露可利用的版本' }
+      ],
+      anns: annRows,
+      form: form,
+      formTitle: editId ? '编辑公告' : '新公告',
+      editing: !!editId,
+      submitLabel: editId ? '保存修改' : '添加公告',
+      cantSubmit: cant,
+      submitBg: cant ? '#E8ECF0' : accent,
+      submitFg: cant ? '#5A6775' : '#FFFFFF',
+      onTitle: setForm('title'), onNode: setForm('node'), onStatus: setForm('status'), onTime: setForm('time'), onBody: setForm('body'),
+      nodeOptions: nodes.filter(function (n) { return n.pub; }).map(function (n) { return { v: n.name, label: n.alias }; }),
+      submit: function () {
+        if (cant) return;
+        var next;
+        if (editId) {
+          next = anns.map(function (a) { return a.id === editId ? Object.assign({}, a, form) : a; });
+        } else {
+          var id = anns.reduce(function (m, a) { return Math.max(m, a.id); }, 0) + 1;
+          next = [Object.assign({ id: id }, form)].concat(anns);
+        }
+        change({ anns: next, editId: null, form: self.emptyForm() });
+      },
+      cancelEdit: function () { self.setState({ editId: null, form: self.emptyForm() }); },
+      pageTitle: st.pageTitle ?? '服务器状态',
+      onPageTitle: function (e) { change({ pageTitle: e.target.value }); },
+      interval: st.interval || '30',
+      onInterval: function (e) { change({ interval: e.target.value }); },
+      access: access
+    };
+  }
+}
+</script>
+</body>
+</html>

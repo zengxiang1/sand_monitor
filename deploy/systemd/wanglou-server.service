@@ -1,0 +1,28 @@
+[Unit]
+Description=Wanglou signed report receiver
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=wanglou
+Group=wanglou
+ExecStart=/usr/local/bin/wanglou-server serve --config /etc/wanglou/server.toml
+StateDirectory=wanglou
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/wanglou
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+MemoryMax=256M
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

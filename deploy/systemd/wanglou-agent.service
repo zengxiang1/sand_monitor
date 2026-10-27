@@ -1,0 +1,29 @@
+[Unit]
+Description=Wanglou outbound VPS monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=wanglou
+Group=wanglou
+ExecStart=/usr/local/bin/wanglou-agent run --config /etc/wanglou/agent.toml
+StateDirectory=wanglou
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/wanglou
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+MemoryMax=24M
+CPUQuota=5%
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
