@@ -205,8 +205,8 @@ preserve all 64 bits. Completed data is downsampled in the background.
    docker compose ps
    ```
 
-   The example selects `zengxiang1/sand-monitor-server:latest` and
-   `zengxiang1/sand-monitor-agent:latest`. Both services retain `build:`; run
+   The example selects `woaileipi/sand-monitor-server:latest` and
+   `woaileipi/sand-monitor-agent:latest`. Both services retain `build:`; run
    `docker compose up -d --build` to build the server locally, or
    `docker compose -f agent.compose.yml build` for the agent. The backend subnet
    defaults to `172.30.0.0/24`; if it overlaps an existing Docker or host
@@ -255,7 +255,7 @@ once (the image runs as UID/GID 65532):
 
 ```sh
 docker volume create wanglou-agent-state
-export WANGLOU_AGENT_IMAGE=zengxiang1/sand-monitor-agent:latest
+export WANGLOU_AGENT_IMAGE=woaileipi/sand-monitor-agent:latest
 # If building locally, run: docker compose -f agent.compose.yml build
 docker run --rm -v wanglou-agent-state:/var/lib/wanglou "$WANGLOU_AGENT_IMAGE" \
   init --name node-01 --server https://<DOMAIN> \

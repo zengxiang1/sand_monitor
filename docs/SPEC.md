@@ -154,7 +154,7 @@ Makefile                    build / test / lint / cross-compile
   - Secrets 不存在时（例如 fork 或 PR）只构建不推送，工作流不失败。
   - 标签：`v1.2.3` → `1.2.3`、`1.2`、`latest`；main 分支 → `edge` 和 `sha-<短哈希>`。
   - 工作流权限 `contents: read`；第三方 action 固定到具体版本（`docker/setup-qemu-action`、`docker/setup-buildx-action`、`docker/login-action`、`docker/metadata-action`、`docker/build-push-action`）。
-- `deploy/docker/.env.example` 的镜像来源默认指向 Docker Hub：`WANGLOU_SERVER_IMAGE=zengxiang1/sand-monitor-server:latest`、`WANGLOU_AGENT_IMAGE=zengxiang1/sand-monitor-agent:latest`；compose 同时保留 `build:`，没有预构建镜像时可本地构建。
+- `deploy/docker/.env.example` 的镜像来源默认指向 Docker Hub：`WANGLOU_SERVER_IMAGE=woaileipi/sand-monitor-server:latest`、`WANGLOU_AGENT_IMAGE=woaileipi/sand-monitor-agent:latest`；compose 同时保留 `build:`，没有预构建镜像时可本地构建。
 
 ### 验收
 
