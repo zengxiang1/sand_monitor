@@ -319,8 +319,7 @@ After adding them, run the "Docker images" workflow manually (Actions → Run wo
 or push to main.
 
 `docker.yml` builds both targets for `linux/amd64` and `linux/arm64`. A `v1.2.3`
-tag publishes `1.2.3`, `1.2`, and `latest`; main publishes `edge` and
-`sha-<short-hash>`. Destinations are
+tag publishes `1.2.3`, `1.2`, and `latest`; main overwrites `edge`. Destinations are
 `docker.io/<DOCKERHUB_USERNAME>/sand-monitor-server` and `sand-monitor-agent`.
 Without both values, and always on PRs, it only builds and does not log in or
 push. Set the image variables in your private `.env` to your namespace after
