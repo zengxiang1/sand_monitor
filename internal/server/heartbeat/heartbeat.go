@@ -10,11 +10,11 @@ import (
 )
 
 type Loop struct {
-	URL                string
-	Client             *http.Client
-	Offline, Reminders atomic.Int64
-	success            atomic.Int64
-	failed             atomic.Bool
+	URL                        string
+	Client                     *http.Client
+	Offline, Reminders, Rollup atomic.Int64
+	success                    atomic.Int64
+	failed                     atomic.Bool
 }
 
 func (l *Loop) Check(ctx context.Context, now time.Time) error {
@@ -22,7 +22,7 @@ func (l *Loop) Check(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	healthy := func(ts int64) bool { return ts > 0 && now.Unix()-ts <= 120 }
-	if !healthy(l.Offline.Load()) || !healthy(l.Reminders.Load()) {
+	if !healthy(l.Offline.Load()) || !healthy(l.Reminders.Load()) || l.Rollup.Load() == 0 || now.Unix()-l.Rollup.Load() > 300 {
 		l.failed.Store(true)
 		return nil
 	}
@@ -62,7 +62,7 @@ func (l *Loop) Status(now time.Time) string {
 		}
 		return "等待首次发送"
 	}
-	if l.failed.Load() || now.Unix()-l.Offline.Load() > 120 || now.Unix()-l.Reminders.Load() > 120 {
+	if l.failed.Load() || now.Unix()-l.Offline.Load() > 120 || now.Unix()-l.Reminders.Load() > 120 || l.Rollup.Load() == 0 || now.Unix()-l.Rollup.Load() > 300 {
 		return fmt.Sprintf("失败（%d 分钟前成功过）", minutes)
 	}
 	return fmt.Sprintf("%d 分钟前", minutes)

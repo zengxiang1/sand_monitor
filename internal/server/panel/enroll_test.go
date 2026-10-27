@@ -197,6 +197,9 @@ func TestHistoryBuckets120000Rows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err = f.s.Rollup(context.Background(), f.now); err != nil {
+		t.Fatal(err)
+	}
 	start := time.Now()
 	points, err := f.h.history("node", 7*24*time.Hour)
 	elapsed := time.Since(start)

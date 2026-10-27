@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,11 @@ func TestCommands(t *testing.T) {
 	for _, a := range [][]string{{"migrate", "--config", path}, {"node", "add", "--config", path, "--name", "node", "--pubkey", proto.PublicKeyLine(pub, "node")}, {"node", "list", "--config", path}, {"node", "revoke", "--config", path, "--name", "node"}, {"node", "list", "--config", path}} {
 		if e := run(a); e != nil {
 			t.Fatal(a, e)
+		}
+	}
+	for _, name := range []string{"node", "fresh"} {
+		if err := run([]string{"node", "add", "--config", path, "--name", name, "--pubkey", proto.PublicKeyLine(pub, name)}); !errors.Is(err, store.ErrRevokedKey) {
+			t.Fatal("revoked CLI key accepted", name, err)
 		}
 	}
 	s, e := store.Open(db)

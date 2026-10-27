@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 	"wanglou/internal/proto"
+	"wanglou/internal/server/eventtext"
 	"wanglou/internal/server/ingest"
 	status "wanglou/internal/server/public"
 	"wanglou/internal/server/requestip"
@@ -36,6 +37,8 @@ var passwordHashes = make(chan struct{}, 2)
 type option struct{ Value, Label string }
 
 type Config struct {
+	MemoryThreshold, DiskThreshold     float64
+	Sustain                            time.Duration
 	CookieSecure                       bool
 	PublicIngestURL                    string
 	TrustedProxies                     []netip.Prefix
@@ -82,6 +85,15 @@ type Handler struct {
 }
 
 func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
+	if c.MemoryThreshold == 0 {
+		c.MemoryThreshold = 90
+	}
+	if c.DiskThreshold == 0 {
+		c.DiskThreshold = 90
+	}
+	if c.Sustain == 0 {
+		c.Sustain = 5 * time.Minute
+	}
 	if c.Interval == 0 {
 		c.Interval = 5 * time.Second
 	}
@@ -102,7 +114,7 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 		return []option{{"30", "每 30 秒"}, {"60", "每 1 分钟"}, {"300", "每 5 分钟"}}
 	}, "annStatuses": func() []option {
 		return []option{{"investigating", "排查中"}, {"monitoring", "已修复，观察中"}, {"resolved", "已恢复"}, {"scheduled", "计划维护"}, {"done", "维护完成"}}
-	}, "relative": func(ts int64) string { return relative(ts, h.Now()) }, "percent": percent, "number": formatNumber, "rate": formatRate, "memory": formatMemory, "uptime": formatUptime, "kind": eventKind, "clock": func(ts int64) string { return time.Unix(ts, 0).Format("15:04") }}).ParseFS(assets, "web/*.html"))
+	}, "relative": func(ts int64) string { return relative(ts, h.Now()) }, "percent": percent, "number": formatNumber, "rate": formatRate, "memory": formatMemory, "uptime": formatUptime, "kind": eventtext.Kind, "describeEvent": h.describeEvent, "clock": func(ts int64) string { return time.Unix(ts, 0).Format("15:04") }}).ParseFS(assets, "web/*.html"))
 	static, _ := fs.Sub(assets, "web/static")
 	for _, entry := range routes {
 		h.mux.HandleFunc(entry.pattern, func(w http.ResponseWriter, r *http.Request) {

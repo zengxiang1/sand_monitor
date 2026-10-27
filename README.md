@@ -102,6 +102,7 @@ interval = "5s"
 memory_threshold = 90
 disk_threshold = 90
 resource_duration = "5m"
+retention_days = 90
 # Optional notifications (omit to retain events without sending):
 # webhook_url = "https://hooks.example.com/wanglou"
 # telegram_token = "bot-token"
@@ -150,9 +151,9 @@ administrator, then set `/etc/wanglou/node.key` owner to `wanglou:wanglou` and
 mode to **0400**. Leave the generated sequence path in `/var/lib/wanglou`, and
 give the agent config group `wanglou` read access. Independently compare the
 printed SHA256 fingerprint with the server's `node add` output before starting.
-The agent never uploads its private key. A fresh key requires a new node identity
-or an explicit local database administration decision; adding an existing node
-refuses to silently replace its key.
+The agent never uploads its private key. To re-enable a revoked name with a fresh key, use the panel enrollment flow
+(code or paste) and compare fingerprints. CLI `node add` rejects every existing
+name, including revoked ones.
 
 For the receiver, install a server config and TLS certificate/key readable by
 `wanglou`, then use `node add` on the receiving host with each node's public key.
@@ -171,15 +172,14 @@ use glibc's little-endian 384-byte wtmp ABI.
 
 The receiver runs as a single process per database. SQLite uses WAL, bounded
 report writes, and transactions coupling replay state, telemetry and events.
-Hourly cleanup removes metrics, logins and events older than seven days (also
-runs at startup). `known_ips` is a small persistent baseline table kept outside
+Hourly cleanup also runs at startup; see the retention policy below. `known_ips` is a small persistent baseline table kept outside
 raw-data retention. It contains no keys or control channel. First-report login
 addresses are considered known; later new addresses alert until an administrator
 marks the IP as common in the panel. Binary changes and sustained memory/disk pressure emit events; gaps over
 three reporting intervals break a sustained episode. Metric timestamps are
 server receipt times, avoiding signed client clock skew in alert durations.
 Unsigned sequence/cumulative traffic counters use decimal TEXT in SQLite to
-preserve all 64 bits. Nothing is downsampled in phase 1.
+preserve all 64 bits. Completed data is downsampled in the background.
 
 ## Docker 一键部署
 
@@ -368,7 +368,7 @@ No integration test is skipped. Linux collectors are cross-compiled here; run
 
 The flat TOML subset (plus the trusted-proxy string array) is intentional; no full TOML implementation is
 required for these settings. Known login IPs persist independently of raw
-seven-day retention. Unsigned counters use decimal SQLite TEXT to retain all
+telemetry retention. Unsigned counters use decimal SQLite TEXT to retain all
 64 bits. Metric timestamps use server receipt time.
 
 Resource checks only query `now - resource_duration - 3*interval` onward. A
@@ -431,10 +431,10 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 然后启动 agent 的 `run` 服务。确认之前接收端始终拒收该节点的指标。
 本地 `init` 还需要 `--insecure-http`，自定义密钥路径时 `fingerprint` 需要 `--key`。
 静音只阻止通知发送，事件继续保存；吊销、备注、确认事件和标记常用 IP 只修改服务端数据库。
-历史图按 1 小时、24 小时、7 天范围在 SQL 中分桶，最多 360 点；页面每 5 秒刷新，
+历史图提供 1 小时、24 小时、7 天、30 天和 90 天范围，在 SQL 中分桶，最多 360 点；页面每 5 秒刷新，
 编辑表单时暂停刷新，禁用 JavaScript 仍可使用全部操作。
 
-启动时数据库自动原地升级至 schema v3；升级前可备份数据库及 WAL。
+启动时数据库自动原地升级至 schema v5；升级前可备份数据库及 WAL。
 新增会话保留至空闲 12 小时或绝对 7 天，注册码保留 1 天，审计记录保留 90 天。
 `make check-panel-assets` 检查嵌入资源的 CSP 约束，并已并入 `make check`。
 
@@ -457,6 +457,30 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 
 ## 外部心跳与时区
 
-`heartbeat_url` / `WANGLOU_HEARTBEAT_URL` 可填外部心跳服务的 HTTPS 地址。服务端每 60 秒发送不带数据的 GET；只有离线检查和提醒检查在最近 2 分钟内都成功过时才发送。总览显示最近成功时间或失败，不展示地址。请求超时 10 秒且不跟随重定向。
+`heartbeat_url` / `WANGLOU_HEARTBEAT_URL` 可填外部心跳服务的 HTTPS 地址。服务端每 60 秒发送不带数据的 GET；只有离线检查和提醒检查在最近 2 分钟内都成功过、降采样任务在最近 5 分钟内成功过时才发送。总览显示最近成功时间或失败，不展示地址。请求超时 10 秒且不跟随重定向。
 
 `timezone` / `WANGLOU_TIMEZONE` 控制到期日、09:00 提醒、流量重置和每日可用率统计；默认 `Local`，Compose 默认 `UTC`。建议部署时明确设置，例如 `Asia/Shanghai`，避免主机和容器默认时区不同。IANA 时区数据已编入服务端。公开页生成时间按导出间隔截断。`public_url`、`heartbeat_url` 只有本地开发的 `--insecure-http` 模式允许 HTTP。
+
+
+## 降采样与长期保留
+
+`retention_days` / `WANGLOU_RETENTION_DAYS` 默认 90，允许 7 到 3650，超出范围拒绝启动。
+原始指标保留 48 小时，分钟汇总保留 14 天，小时汇总、事件和登录记录保留 `retention_days` 天。
+每天可用率保留 60 天、提醒去重保留 400 天、审计保留 90 天；常用 IP 基线独立保留。
+
+启动后及每 60 秒汇总一次，桶按 Unix 时间对齐并留 1 分钟余量；小时平均值按原始样本数加权。
+升级至 v5 后自动补算现有原始数据，每个事务最多处理 6 小时分钟桶或 7 天小时桶。
+清理以汇总水位为界，尚未进入下一级的数据继续保留。历史图的 1 小时读原始数据，
+24 小时和 7 天读分钟数据，30 天和 90 天读小时数据，右端用原始数据补齐；超出保留期的范围回落到 24 小时。
+总览、最新指标、公开页和告警仍读原始数据。
+
+测试库实测：每台节点约 **8.56 MB**（8,564,736 字节，十进制 MB），按 5 秒上报、90 天保留，
+包含 34,560 条原始指标、20,159 条分钟指标和 2,160 条小时指标及其索引。
+可运行 `go test ./internal/server/store -run TestRetentionDatabaseSize -v -count=1` 复测。
+这是单节点测试库在 `VACUUM` 和 WAL checkpoint 后的体积，字段使用变化的示例指标；不含事件和登录记录的可变增量。
+实际运行还需为 WAL、空闲页和升级补算预留空间；定时清理不会自动缩小数据库文件。
+
+吊销过的名称可在面板“接入节点”中通过注册码或粘贴新公钥重新启用。
+步骤 1 和 3 会提示换钥及保留历史；确认时保留登记时间、上报序号和历史数据，并写入 `node_reenable` 审计。
+吊销指纹永久保留，换名称或多轮换钥也不能复用已吊销的公钥；未吊销的名称仍拒绝覆盖。
+命令行 `node add` 同样拒绝已吊销的公钥，遇到已有名称仍然拒绝。

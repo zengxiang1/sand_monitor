@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -87,12 +88,12 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, sess session, a
 			http.Error(w, "节点名或备注无效", 400)
 			return
 		}
-		_, err := h.Store.Node(state.Name)
-		if err == nil {
+		node, err := h.Store.Node(state.Name)
+		if err == nil && node.RevokedAt == 0 {
 			http.Error(w, "节点名已被占用", 409)
 			return
 		}
-		if err != sql.ErrNoRows {
+		if err != nil && err != sql.ErrNoRows {
 			h.serverError(w, err)
 			return
 		}
@@ -100,6 +101,14 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, sess session, a
 			key, err := proto.ParsePublicKey(r.PostForm.Get("pubkey"))
 			if err != nil || strings.Fields(r.PostForm.Get("pubkey"))[2] != state.Name {
 				http.Error(w, "公钥行中的名称必须与节点名一致", 400)
+				return
+			}
+			if err := h.Store.CheckRevokedKey(proto.Fingerprint(key)); err != nil {
+				if errors.Is(err, store.ErrRevokedKey) {
+					http.Error(w, err.Error(), 400)
+				} else {
+					h.serverError(w, err)
+				}
 				return
 			}
 			state.Pubkey = proto.PublicKeyLine(key, state.Name)
@@ -139,6 +148,10 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, sess session, a
 		}
 		err := h.Store.ConfirmEnrollment(state.Name, state.Note, state.Pubkey, state.Hash, now, sess.User, requestip.ClientIP(r, h.Config.TrustedProxies))
 		if err != nil {
+			if errors.Is(err, store.ErrRevokedKey) {
+				http.Error(w, err.Error(), 400)
+				return
+			}
 			http.Error(w, "无法启用：节点名已占用、注册码已过期或公钥不一致", 400)
 			return
 		}
@@ -175,6 +188,12 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, sess session, a
 			data.Note = ""
 		}
 	}
+	node, err := h.Store.Node(data.Name)
+	if err != nil && err != sql.ErrNoRows {
+		h.serverError(w, err)
+		return
+	}
+	data.Reenable = err == nil && node.RevokedAt != 0
 	data.Command = fmt.Sprintf("sudo wanglou-agent init --name %s --server '%s'", data.Name, strings.ReplaceAll(data.PublicURL, "'", "'\\''"))
 	if strings.HasPrefix(data.PublicURL, "http:") {
 		data.Command += " --insecure-http"

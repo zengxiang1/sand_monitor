@@ -19,6 +19,7 @@ const defaultConfig = "/etc/wanglou/server.toml"
 type config struct {
 	Database, Listen, TLSCert, TLSKey, WebhookURL, TelegramToken, TelegramChatID string
 	Timezone, PublicDir, PublicURL, HeartbeatURL                                 string
+	RetentionDays                                                                int
 	Location                                                                     *time.Location
 	ListenPlain                                                                  bool
 	PanelListen, PublicIngestURL                                                 string
@@ -31,7 +32,7 @@ type config struct {
 // errors. Environment variables override the file, including empty strings.
 func loadConfig(path string) (config, error) { return loadConfigEnv(path, os.Environ()) }
 func loadConfigEnv(path string, environment []string) (config, error) {
-	c := config{Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
+	c := config{RetentionDays: 90, Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
 	apply := func(key, value string, env bool) (err error) {
 		stringValue := func() (string, error) {
 			if env {
@@ -40,6 +41,8 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 			return localconfig.String(value)
 		}
 		switch key {
+		case "retention_days":
+			c.RetentionDays, err = strconv.Atoi(value)
 		case "timezone":
 			c.Timezone, err = stringValue()
 		case "public_dir":
@@ -130,7 +133,7 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 			return c, fmt.Errorf("invalid environment variable %q: %w", name, err)
 		}
 	}
-	if c.Database == "" || c.Listen == "" || c.Alerts.Interval < time.Second || c.Alerts.Sustain < time.Second || !(c.Alerts.MemoryThreshold > 0 && c.Alerts.MemoryThreshold <= 100) || !(c.Alerts.DiskThreshold > 0 && c.Alerts.DiskThreshold <= 100) {
+	if c.RetentionDays < 7 || c.RetentionDays > 3650 || c.Database == "" || c.Listen == "" || c.Alerts.Interval < time.Second || c.Alerts.Sustain < time.Second || !(c.Alerts.MemoryThreshold > 0 && c.Alerts.MemoryThreshold <= 100) || !(c.Alerts.DiskThreshold > 0 && c.Alerts.DiskThreshold <= 100) {
 		return c, fmt.Errorf("invalid configuration")
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") || (c.TelegramToken == "") != (c.TelegramChatID == "") {

@@ -165,3 +165,35 @@ func TestPhaseThreeConfig(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
+
+func TestRetentionDaysConfiguration(t *testing.T) {
+	c, err := loadConfigEnv("", nil)
+	if err != nil || c.RetentionDays != 90 {
+		t.Fatal(c.RetentionDays, err)
+	}
+	path := filepath.Join(t.TempDir(), "retention.toml")
+	for _, value := range []string{"7", "90", "3650"} {
+		if err = os.WriteFile(path, []byte("retention_days = "+value+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		c, err = loadConfigEnv(path, nil)
+		if err != nil {
+			t.Fatal(value, err)
+		}
+		c, err = loadConfigEnv(path, []string{"WANGLOU_RETENTION_DAYS=100"})
+		if err != nil || c.RetentionDays != 100 {
+			t.Fatal(c.RetentionDays, err)
+		}
+	}
+	for _, value := range []string{"0", "6", "3651", "-1", "7.5", "invalid", ""} {
+		if _, err = loadConfigEnv("", []string{"WANGLOU_RETENTION_DAYS=" + value}); err == nil {
+			t.Fatal("accepted", value)
+		}
+		if err = os.WriteFile(path, []byte("retention_days = "+value+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = loadConfigEnv(path, nil); err == nil {
+			t.Fatal("accepted file", value)
+		}
+	}
+}

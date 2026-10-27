@@ -18,10 +18,11 @@ var ErrReplay = errors.New("sequence replay")
 var ErrNode = errors.New("unknown or revoked node")
 
 type Store struct {
-	DB       *sql.DB
-	mu       sync.Mutex
-	Location *time.Location
-	Interval time.Duration
+	DB            *sql.DB
+	mu            sync.Mutex
+	Location      *time.Location
+	Interval      time.Duration
+	RetentionDays int
 }
 type Node struct {
 	Name                           string
@@ -49,7 +50,7 @@ func Open(path string) (*Store, error) {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{DB: db, Location: time.Local, Interval: 5 * time.Second}
+	s := &Store{DB: db, Location: time.Local, Interval: 5 * time.Second, RetentionDays: 90}
 	if _, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); e == nil {
 		e = s.Migrate()
 	}
@@ -66,11 +67,8 @@ func (s *Store) Migrate() error {
 		if e := tx.QueryRow(`PRAGMA user_version`).Scan(&version); e != nil {
 			return e
 		}
-		if version > 4 {
+		if version > 5 {
 			return fmt.Errorf("unsupported schema version %d", version)
-		}
-		if version == 4 {
-			return nil
 		}
 		if version < 3 {
 			_, e := tx.Exec(`
@@ -104,7 +102,19 @@ func (s *Store) Migrate() error {
 				return e
 			}
 		}
-		return migrateBilling(tx)
+		if version < 4 {
+			if err := migrateBilling(tx); err != nil {
+				return err
+			}
+		}
+		if version < 5 {
+			if err := migrateRollup(tx); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS revoked_keys(fingerprint TEXT PRIMARY KEY,node TEXT NOT NULL,revoked_at INTEGER NOT NULL);
+ INSERT OR IGNORE INTO revoked_keys SELECT fingerprint,name,revoked_at FROM nodes WHERE revoked_at>0;`)
+		return err
 	})
 }
 func (s *Store) AddNode(name string, key ed25519.PublicKey, now time.Time) error {
@@ -114,6 +124,9 @@ func (s *Store) AddNode(name string, key ed25519.PublicKey, now time.Time) error
 func addNode(tx *sql.Tx, name string, key ed25519.PublicKey, note string, now time.Time) error {
 	if !proto.ValidNode(name) || len(key) != ed25519.PublicKeySize {
 		return fmt.Errorf("invalid node")
+	}
+	if err := checkRevokedKey(tx, proto.Fingerprint(key)); err != nil {
+		return err
 	}
 	_, err := tx.Exec(`INSERT INTO nodes(name,pubkey,fingerprint,created_at,note) VALUES(?,?,?,?,?)`, name, []byte(key), proto.Fingerprint(key), now.Unix(), note)
 	return err
@@ -158,9 +171,13 @@ func (s *Store) Revoke(name string, now time.Time) error {
 			return e
 		}
 		n, e := r.RowsAffected()
-		if e == nil && n == 0 {
+		if e != nil {
+			return e
+		}
+		if n == 0 {
 			return ErrNode
 		}
+		_, e = tx.Exec(`INSERT OR IGNORE INTO revoked_keys(fingerprint,node,revoked_at) SELECT fingerprint,name,? FROM nodes WHERE name=?`, now.Unix(), name)
 		return e
 	})
 }
@@ -239,9 +256,33 @@ func (s *Store) MarkNotified(id int64) error {
 }
 func (s *Store) Cleanup(now time.Time) error {
 	return s.Transaction(func(tx *sql.Tx) error {
-		for _, table := range []string{"metrics", "logins", "events"} {
-			if _, e := tx.Exec(`DELETE FROM `+table+` WHERE ts<?`, now.Add(-7*24*time.Hour).Unix()); e != nil {
-				return e
+		for _, item := range []struct {
+			table  string
+			cutoff int64
+		}{
+			{"metrics", now.Add(-48 * time.Hour).Unix()},
+			{"metrics_1m", now.Add(-14 * 24 * time.Hour).Unix()},
+			{"metrics_1h", now.Add(-time.Duration(s.RetentionDays) * 24 * time.Hour).Unix()},
+			{"events", now.Add(-time.Duration(s.RetentionDays) * 24 * time.Hour).Unix()},
+			{"logins", now.Add(-time.Duration(s.RetentionDays) * 24 * time.Hour).Unix()},
+		} {
+			cutoff := item.cutoff
+			key := ""
+			if item.table == "metrics" {
+				key = "rollup.1m"
+			}
+			if item.table == "metrics_1m" {
+				key = "rollup.1h"
+			}
+			if key != "" {
+				var watermark int64
+				if err := tx.QueryRow(`SELECT coalesce((SELECT CAST(value AS INTEGER) FROM kv WHERE key=?),0)`, key).Scan(&watermark); err != nil {
+					return err
+				}
+				cutoff = min(cutoff, watermark)
+			}
+			if _, err := tx.Exec(`DELETE FROM `+item.table+` WHERE ts<?`, cutoff); err != nil {
+				return err
 			}
 		}
 		_, e := tx.Exec(`DELETE FROM sessions WHERE last_seen<=? OR created_at<=?;`, now.Add(-12*time.Hour).Unix(), now.Add(-7*24*time.Hour).Unix())

@@ -68,7 +68,7 @@ func TestWALSchemaRetentionAndAtomicity(t *testing.T) {
 	}
 	for _, table := range []string{"metrics", "logins", "events"} {
 		var count int
-		if e = s.DB.QueryRow(`SELECT count(*) FROM ` + table).Scan(&count); e != nil || count != 2 {
+		if e = s.DB.QueryRow(`SELECT count(*) FROM ` + table).Scan(&count); e != nil || count != 3 {
 			t.Fatal(table, count, e)
 		}
 	}

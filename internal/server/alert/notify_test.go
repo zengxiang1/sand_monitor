@@ -28,7 +28,7 @@ func TestWebhookAndTelegram(t *testing.T) {
 				t.Error(payload)
 			}
 		case "/bottoken/sendMessage":
-			if payload["chat_id"] != "123" || payload["text"] == "" {
+			if payload["chat_id"] != "123" || payload["text"] != "望楼 · node · 失联：从未上报" {
 				t.Error(payload)
 			}
 		default:
@@ -37,7 +37,7 @@ func TestWebhookAndTelegram(t *testing.T) {
 		calls.Add(1)
 		w.WriteHeader(204)
 	}))
-	event := store.Event{Node: "node", Kind: "offline"}
+	event := store.Event{Node: "node", Kind: "offline", Detail: "从未上报"}
 	if e := (Webhook{URL: server.URL + "/hook", Client: client}).Notify(context.Background(), event); e != nil {
 		t.Fatal(e)
 	}
@@ -203,6 +203,7 @@ func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 	if err = e.Store.DB.QueryRow(`SELECT count(*) FROM event_deliveries`).Scan(&receipts); err != nil || receipts != 2 {
 		t.Fatal(receipts, err)
 	}
+	e.Store.RetentionDays = 7
 	if err = e.Store.Cleanup(now.Add(8 * 24 * time.Hour)); err != nil {
 		t.Fatal(err)
 	}

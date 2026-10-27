@@ -9,7 +9,7 @@ import (
 	"wanglou/internal/testutil"
 )
 
-func TestHeartbeatGatedByBothLoops(t *testing.T) {
+func TestHeartbeatGatedByAllLoops(t *testing.T) {
 	calls := 0
 	redirect := false
 	s, client := testutil.NewServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42,19 +42,23 @@ func TestHeartbeatGatedByBothLoops(t *testing.T) {
 		t.Fatal(err, calls)
 	}
 	l.Reminders.Store(now.Unix())
+	l.Rollup.Store(now.Unix())
 	if err := l.Check(context.Background(), now); err != nil || calls != 1 {
 		t.Fatal(err, calls)
 	}
 	if l.Status(now) != "0 分钟前" {
 		t.Fatal(l.Status(now))
 	}
-	for _, stuck := range []string{"offline", "reminders"} {
+	for _, stuck := range []string{"offline", "reminders", "rollup"} {
 		l.Offline.Store(now.Unix())
 		l.Reminders.Store(now.Unix())
+		l.Rollup.Store(now.Unix())
 		if stuck == "offline" {
 			l.Offline.Store(now.Add(-121 * time.Second).Unix())
-		} else {
+		} else if stuck == "reminders" {
 			l.Reminders.Store(now.Add(-121 * time.Second).Unix())
+		} else {
+			l.Rollup.Store(now.Add(-301 * time.Second).Unix())
 		}
 		if err := l.Check(context.Background(), now); err != nil || calls != 1 {
 			t.Fatal(stuck, err, calls)
@@ -65,6 +69,7 @@ func TestHeartbeatGatedByBothLoops(t *testing.T) {
 	}
 	l.Offline.Store(now.Unix())
 	l.Reminders.Store(now.Unix())
+	l.Rollup.Store(now.Unix())
 	redirect = true
 	if err := l.Check(context.Background(), now); err == nil || calls != 2 {
 		t.Fatal("redirect followed", err, calls)

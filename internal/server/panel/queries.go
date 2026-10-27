@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"wanglou/internal/server/eventtext"
 	"wanglou/internal/server/ingest"
 	"wanglou/internal/server/store"
 )
@@ -30,6 +32,9 @@ type loginRecord struct {
 type chart struct{ Title, Line, Line2, Area, Top, Mid, Zero, Start, End, Summary string }
 type tag struct{ Text, Tone string }
 type page struct {
+	Precision                                                               string
+	Ranges                                                                  []option
+	Reenable                                                                bool
 	Billing                                                                 billingPage
 	Public                                                                  publicPage
 	PublicDir, Heartbeat                                                    string
@@ -109,12 +114,36 @@ func formatUptime(seconds float64) string {
 	}
 	return fmt.Sprintf("%d 分钟", minutes)
 }
-func eventKind(kind string) string {
-	names := map[string]string{"login_new_ip": "新登录", "offline": "失联", "recovered": "恢复", "bin_changed": "二进制变化", "resource": "资源告警", "billing": "续费", "traffic": "流量", "traffic_reset": "流量"}
-	if label, ok := names[kind]; ok {
-		return label
+func (h *Handler) describeEvent(kind, detail string) string {
+	switch kind {
+	case "offline":
+		if value, ok := strings.CutPrefix(detail, "last seen "); ok {
+			if ts, err := strconv.ParseInt(value, 10, 64); err == nil && ts >= 0 {
+				return eventtext.Offline(ts, h.Store.Location)
+			}
+		}
+	case "login_new_ip":
+		if user, ip, ok := strings.Cut(detail, " from "); ok && user != "" && ip != "" {
+			return user + " 从 " + ip + " 登录（首次出现的 IP）"
+		}
+	case "recovered":
+		if detail == "" {
+			return "重新开始上报"
+		}
+	case "resource":
+		if detail == "memory" || detail == "disk" {
+			threshold := h.Config.MemoryThreshold
+			if detail == "disk" {
+				threshold = h.Config.DiskThreshold
+			}
+			return eventtext.Resource(detail, threshold, h.Config.Sustain)
+		}
+	case "bin_changed":
+		if old, next, ok := strings.Cut(detail, " -> "); ok && old != "" && next != "" {
+			return "agent 二进制变化：" + old + " → " + next
+		}
 	}
-	return kind
+	return detail
 }
 func (h *Handler) base(sess session) page {
 	heartbeat := "未配置"
@@ -300,7 +329,19 @@ func (h *Handler) history(name string, duration time.Duration) ([]historyPoint, 
 	now := h.Now().Unix()
 	start := now - int64(duration/time.Second)
 	width := (int64(duration/time.Second) + 360) / 360
-	rows, err := h.Store.DB.Query(`SELECT min(ts),avg(cpu),avg(CASE WHEN mem_total>0 THEN mem_used*100.0/mem_total ELSE 0 END),avg(CASE WHEN disk_total>0 THEN disk_used*100.0/disk_total ELSE 0 END),avg(net_tx),avg(net_rx) FROM metrics WHERE node=? AND ts>=? AND ts<=? GROUP BY (ts-?)/? ORDER BY min(ts)`, name, start, now, start, width)
+	source := `(SELECT ts,cpu,mem_used,mem_total,disk_used,disk_total,net_tx,net_rx,1 AS samples FROM metrics WHERE node=?1 AND ts>=?2 AND ts<=?3)`
+	watermark := start
+	if duration > time.Hour {
+		table, key := "metrics_1m", "rollup.1m"
+		if duration > 7*24*time.Hour {
+			table, key = "metrics_1h", "rollup.1h"
+		}
+		if err := h.Store.DB.QueryRow(`SELECT coalesce((SELECT CAST(value AS INTEGER) FROM kv WHERE key=?),?)`, key, start).Scan(&watermark); err != nil {
+			return nil, err
+		}
+		source = `(SELECT ts,cpu,mem_used,mem_total,disk_used,disk_total,net_tx,net_rx,samples FROM ` + table + ` WHERE node=?1 AND ts>=?2 AND ts<=?3 AND ts<?4 UNION ALL SELECT ts,cpu,mem_used,mem_total,disk_used,disk_total,net_tx,net_rx,1 AS samples FROM metrics WHERE node=?1 AND ts>=?4 AND ts<=?3)`
+	}
+	rows, err := h.Store.DB.Query(`SELECT min(ts),coalesce(sum(cpu*samples)/sum(samples),0),coalesce(sum(CASE WHEN mem_total>0 THEN mem_used*100.0/mem_total ELSE 0 END*samples)/sum(samples),0),coalesce(sum(CASE WHEN disk_total>0 THEN disk_used*100.0/disk_total ELSE 0 END*samples)/sum(samples),0),coalesce(sum(net_tx*samples)/sum(samples),0),coalesce(sum(net_rx*samples)/sum(samples),0) FROM `+source+` GROUP BY (ts-?2)/?5 ORDER BY min(ts)`, name, start, now, max(start, watermark), width)
 	if err != nil {
 		return nil, err
 	}
@@ -334,13 +375,35 @@ func (h *Handler) node(w http.ResponseWriter, r *http.Request, sess session) {
 	data.NodeLink = "/nodes/" + n.Name
 	data.Range = r.URL.Query().Get("range")
 	duration := time.Hour
+	data.Precision = "5 秒"
+	for _, item := range []struct {
+		value, label string
+		days         int
+	}{{"1h", "1 小时", 0}, {"24h", "24 小时", 1}, {"7d", "7 天", 7}, {"30d", "30 天", 30}, {"90d", "90 天", 90}} {
+		if item.days <= h.Store.RetentionDays {
+			data.Ranges = append(data.Ranges, option{item.value, item.label})
+		}
+		if item.value == data.Range && item.days > h.Store.RetentionDays {
+			data.Range = "24h"
+		}
+	}
 	switch data.Range {
 	case "24h":
 		duration = 24 * time.Hour
 	case "7d":
 		duration = 7 * 24 * time.Hour
+	case "30d":
+		duration = 30 * 24 * time.Hour
+	case "90d":
+		duration = 90 * 24 * time.Hour
 	default:
 		data.Range = "1h"
+	}
+	if duration > time.Hour {
+		data.Precision = "1 分钟"
+	}
+	if duration > 7*24*time.Hour {
+		data.Precision = "1 小时"
 	}
 	history, err := h.history(n.Name, duration)
 	if err != nil {

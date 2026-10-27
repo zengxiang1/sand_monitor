@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"wanglou/internal/server/eventtext"
 	"wanglou/internal/server/store"
 )
 
@@ -49,7 +50,7 @@ func (t Telegram) Notify(ctx context.Context, e store.Event) error {
 	if base == "" {
 		base = "https://api.telegram.org"
 	}
-	return post(ctx, t.Client, base+"/bot"+url.PathEscape(t.Token)+"/sendMessage", map[string]string{"chat_id": t.ChatID, "text": fmt.Sprintf("wanglou %s: %s %s", e.Node, e.Kind, e.Detail)})
+	return post(ctx, t.Client, base+"/bot"+url.PathEscape(t.Token)+"/sendMessage", map[string]string{"chat_id": t.ChatID, "text": fmt.Sprintf("望楼 · %s · %s：%s", e.Node, eventtext.Kind(e.Kind), e.Detail)})
 }
 func post(ctx context.Context, client *http.Client, target string, payload any) error {
 	b, e := json.Marshal(payload)

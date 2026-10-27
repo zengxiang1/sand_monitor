@@ -122,6 +122,7 @@ func TestLoginBaselineNewIPAndBinary(t *testing.T) {
 	if _, err := e.Store.DB.Exec(`INSERT INTO known_ips VALUES(?,?)`, "node", "203.0.113.8"); err != nil {
 		t.Fatal(err)
 	}
+	e.Store.RetentionDays = 7
 	if err := e.Store.Cleanup(now.Add(8 * 24 * time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -191,4 +192,48 @@ func TestResourceQueryExcludesOldHistory(t *testing.T) {
 	if count(t, e, "resource") != 2 {
 		t.Fatal("bounded query failed to detect sustained usage")
 	}
+}
+
+func TestChineseEventDetails(t *testing.T) {
+	e, now := setupEngine(t)
+	e.Store.Location = time.FixedZone("test", 8*3600)
+	assertDetail := func(kind, want string) {
+		t.Helper()
+		var got string
+		if err := e.Store.DB.QueryRow(`SELECT detail FROM events WHERE kind=? ORDER BY id DESC LIMIT 1`, kind).Scan(&got); err != nil || got != want {
+			t.Fatal(kind, got, want, err)
+		}
+	}
+	if err := e.CheckOffline(now.Add(16 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	assertDetail("offline", "从未上报")
+	r := sampleReport()
+	send(t, e, now.Add(17*time.Second), r)
+	assertDetail("recovered", "首次开始上报")
+	send(t, e, now.Add(22*time.Second), r)
+	if err := e.CheckOffline(now.Add(40 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	assertDetail("offline", "最近一次上报 "+now.Add(22*time.Second).In(e.Store.Location).Format("2006-01-02 15:04:05"))
+	r.Login = []proto.Login{{User: "admin", From: "192.0.2.3", Time: now.Add(92 * time.Second).Unix()}}
+	old := r.Bin
+	r.Bin = "sha256:" + strings.Repeat("b", 64)
+	send(t, e, now.Add(92*time.Second), r)
+	assertDetail("recovered", "重新开始上报，离线 1 分 10 秒")
+	assertDetail("bin_changed", "agent 二进制变化："+old+" → "+r.Bin)
+	assertDetail("login_new_ip", "admin 从 192.0.2.3 登录（首次出现的 IP）")
+	e.Config.MemoryThreshold = 95
+	e.Config.DiskThreshold = 96
+	e.Config.Sustain = time.Minute
+	r.Mem = [2]float64{95, 100}
+	r.Disk = [2]float64{96, 100}
+	for seconds := 100; seconds <= 160; seconds += 5 {
+		send(t, e, now.Add(time.Duration(seconds)*time.Second), r)
+	}
+	var detail string
+	if err := e.Store.DB.QueryRow(`SELECT detail FROM events WHERE kind='resource' ORDER BY id LIMIT 1`).Scan(&detail); err != nil || detail != "内存超过 95%，已持续 1 分钟" {
+		t.Fatal(detail, err)
+	}
+	assertDetail("resource", "磁盘超过 96%，已持续 1 分钟")
 }

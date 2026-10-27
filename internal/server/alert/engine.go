@@ -3,9 +3,9 @@ package alert
 
 import (
 	"database/sql"
-	"fmt"
 	"time"
 	"wanglou/internal/proto"
+	"wanglou/internal/server/eventtext"
 	"wanglou/internal/server/store"
 )
 
@@ -39,12 +39,16 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 		return err
 	}
 	if state == "offline" {
-		if err = store.AddEvent(tx, now, n.Name, "recovered", ""); err != nil {
+		detail := "首次开始上报"
+		if n.LastSeen != 0 {
+			detail = "重新开始上报，离线 " + eventtext.Duration(now.Unix()-n.LastSeen)
+		}
+		if err = store.AddEvent(tx, now, n.Name, "recovered", detail); err != nil {
 			return err
 		}
 	}
 	if n.BinHash != "" && n.BinHash != r.Bin {
-		if err = store.AddEvent(tx, now, n.Name, "bin_changed", n.BinHash+" -> "+r.Bin); err != nil {
+		if err = store.AddEvent(tx, now, n.Name, "bin_changed", "agent 二进制变化："+n.BinHash+" → "+r.Bin); err != nil {
 			return err
 		}
 	}
@@ -70,7 +74,7 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 			return err
 		}
 		if known == 0 {
-			if err = store.AddEvent(tx, now, n.Name, "login_new_ip", l.User+" from "+l.From); err != nil {
+			if err = store.AddEvent(tx, now, n.Name, "login_new_ip", l.User+" 从 "+l.From+" 登录（首次出现的 IP）"); err != nil {
 				return err
 			}
 		}
@@ -130,7 +134,7 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 			active = false
 		}
 		if high && !active {
-			if err = store.AddEvent(tx, now, n.Name, "resource", resource.name); err != nil {
+			if err = store.AddEvent(tx, now, n.Name, "resource", eventtext.Resource(resource.name, resource.threshold, e.Config.Sustain)); err != nil {
 				return err
 			}
 			active = true
@@ -180,7 +184,7 @@ func (e *Engine) CheckOffline(now time.Time) error {
 				return err
 			}
 			if state != "offline" {
-				if err = store.AddEvent(tx, now, n.name, "offline", fmt.Sprintf("last seen %d", n.last)); err != nil {
+				if err = store.AddEvent(tx, now, n.name, "offline", eventtext.Offline(n.last, e.Store.Location)); err != nil {
 					return err
 				}
 			}

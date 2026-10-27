@@ -75,6 +75,7 @@ func run(args []string) error {
 		return e
 	}
 	defer s.Close()
+	s.RetentionDays = c.RetentionDays
 	s.Location = c.Location
 	s.Interval = c.Alerts.Interval
 	switch command {
@@ -163,6 +164,23 @@ func run(args []string) error {
 			}
 		}
 	})
+	worker(func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			if err := s.Rollup(ctx, time.Now()); err != nil {
+				log.Printf("rollup: %v", err)
+			} else {
+				heart.Rollup.Store(time.Now().Unix())
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	})
+
 	if c.HeartbeatURL != "" {
 		worker(func() {
 			ticker := time.NewTicker(60 * time.Second)
@@ -199,7 +217,7 @@ func run(args []string) error {
 		if c.WebhookURL != "" {
 			channels = append(channels, "Webhook")
 		}
-		addServer(c.PanelListen, panel.New(s, handler, panel.Config{PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
+		addServer(c.PanelListen, panel.New(s, handler, panel.Config{MemoryThreshold: c.Alerts.MemoryThreshold, DiskThreshold: c.Alerts.DiskThreshold, Sustain: c.Alerts.Sustain, PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
 	}
 	worker(func() {
 		<-ctx.Done()

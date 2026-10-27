@@ -45,7 +45,7 @@ func TestPhaseOneMigration(t *testing.T) {
 			}
 			defer s.Close()
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 4 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 5 {
 				t.Fatal(got, err)
 			}
 			n, err := s.Node("old")
@@ -115,6 +115,38 @@ func TestPanelRetentionAndMetadata(t *testing.T) {
 		var count int
 		if err = s.DB.QueryRow(`SELECT count(*) FROM ` + table).Scan(&count); err != nil || count != 1 {
 			t.Fatal(table, count, err)
+		}
+	}
+}
+
+func TestRevokedKeysMigration(t *testing.T) {
+	for _, version := range []int{4, 5} {
+		s := billingStore(t)
+		node, err := s.Node("node")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.DB.Exec(`UPDATE nodes SET revoked_at=100 WHERE name='node'; DROP TABLE revoked_keys`); err != nil {
+			t.Fatal(err)
+		}
+		if version == 4 {
+			if _, err = s.DB.Exec(`DROP TABLE metrics_1m;DROP TABLE metrics_1h;PRAGMA user_version=4`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for range 2 {
+			if err = s.Migrate(); err != nil {
+				t.Fatal(version, err)
+			}
+			var fingerprint, name string
+			var at int64
+			if err = s.DB.QueryRow(`SELECT fingerprint,node,revoked_at FROM revoked_keys`).Scan(&fingerprint, &name, &at); err != nil || fingerprint != node.Fingerprint || name != "node" || at != 100 {
+				t.Fatal(version, fingerprint, name, at, err)
+			}
+			var got int
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 5 {
+				t.Fatal(version, got, err)
+			}
 		}
 	}
 }
