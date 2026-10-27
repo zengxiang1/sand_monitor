@@ -164,3 +164,38 @@ func (r *loginReader) save(c loginCursor) error {
 	defer dir.Close()
 	return dir.Sync()
 }
+
+type loginCollectors map[string]*loginReader
+
+func newLoginCollectors(path, state string, backup []string) (loginCollectors, error) {
+	paths := map[string]string{"primary": state}
+	if len(backup) > 0 {
+		paths["backup"] = backup[0]
+	}
+	readers := loginCollectors{}
+	for target, statePath := range paths {
+		r, err := newLoginReader(path, statePath)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = r.sample(); err != nil {
+			return nil, err
+		}
+		readers[target] = r
+	}
+	return readers, nil
+}
+func (c loginCollectors) Logins(target string) ([]proto.Login, error) {
+	r := c[target]
+	if r == nil {
+		return nil, fmt.Errorf("unknown login target %q", target)
+	}
+	return r.sample()
+}
+func (c loginCollectors) Acknowledge(target string) error {
+	r := c[target]
+	if r == nil {
+		return fmt.Errorf("unknown login target %q", target)
+	}
+	return r.acknowledge()
+}

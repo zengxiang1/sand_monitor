@@ -37,6 +37,8 @@ var passwordHashes = make(chan struct{}, 2)
 type option struct{ Value, Label string }
 
 type Config struct {
+	BackupIngestURL                    string
+	PeerStatus                         func(time.Time) string
 	MemoryThreshold, DiskThreshold     float64
 	Sustain                            time.Duration
 	CookieSecure                       bool

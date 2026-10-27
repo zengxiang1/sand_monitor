@@ -19,6 +19,7 @@ import (
 	"wanglou/internal/server/heartbeat"
 	"wanglou/internal/server/ingest"
 	"wanglou/internal/server/panel"
+	"wanglou/internal/server/peer"
 	status "wanglou/internal/server/public"
 	"wanglou/internal/server/store"
 )
@@ -121,17 +122,21 @@ func run(args []string) error {
 	engine := alert.New(s, c.Alerts)
 	heart := &heartbeat.Loop{URL: c.HeartbeatURL}
 	exporter := &status.Exporter{Store: s, Dir: c.PublicDir}
-	dispatcher := &alert.Dispatcher{Store: s}
+	dispatcher := &alert.Dispatcher{Store: s, Scope: c.AlertScope}
 	if c.WebhookURL != "" {
-		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Webhook{URL: c.WebhookURL})
+		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Webhook{URL: c.WebhookURL, Instance: c.InstanceName})
 	}
 	if c.TelegramToken != "" {
-		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Telegram{Token: c.TelegramToken, ChatID: c.TelegramChatID})
+		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Telegram{Token: c.TelegramToken, ChatID: c.TelegramChatID, Instance: c.InstanceName})
 	}
+	peerCheck := &peer.Loop{URL: c.PeerURL, Notifiers: dispatcher.Notifiers}
 	var wg sync.WaitGroup
 	worker := func(fn func()) { wg.Add(1); go func() { defer wg.Done(); fn() }() }
 	worker(func() { s.RunCleanup(ctx) })
 	worker(func() { dispatcher.Run(ctx) })
+	if c.PeerURL != "" {
+		worker(func() { peerCheck.Run(ctx) })
+	}
 	worker(func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -217,7 +222,7 @@ func run(args []string) error {
 		if c.WebhookURL != "" {
 			channels = append(channels, "Webhook")
 		}
-		addServer(c.PanelListen, panel.New(s, handler, panel.Config{MemoryThreshold: c.Alerts.MemoryThreshold, DiskThreshold: c.Alerts.DiskThreshold, Sustain: c.Alerts.Sustain, PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
+		addServer(c.PanelListen, panel.New(s, handler, panel.Config{PeerStatus: peerCheck.Status, BackupIngestURL: c.BackupIngestURL, MemoryThreshold: c.Alerts.MemoryThreshold, DiskThreshold: c.Alerts.DiskThreshold, Sustain: c.Alerts.Sustain, PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
 	}
 	worker(func() {
 		<-ctx.Done()

@@ -30,7 +30,7 @@ check-panel-assets:
 	@$(GO) run ./scripts/check-panel-assets
 check-files:
 	@test -s README.md
-	@for file in Dockerfile .dockerignore deploy/docker/compose.yml deploy/docker/Caddyfile deploy/docker/.env.example deploy/docker/agent.compose.yml .github/workflows/ci.yml .github/workflows/docker.yml; do \
+	@for file in Dockerfile .dockerignore deploy/docker/compose.yml deploy/docker/backup.compose.yml deploy/docker/backup.Caddyfile deploy/docker/Caddyfile deploy/docker/.env.example deploy/docker/agent.compose.yml .github/workflows/ci.yml .github/workflows/docker.yml; do \
 	  test -s "$$file" || exit 1; \
 	done
 	@grep -Fqx 'FROM gcr.io/distroless/static-debian12:nonroot AS server' Dockerfile
@@ -46,5 +46,11 @@ check-files:
 	@grep -Fqx 'MemoryMax=256M' deploy/systemd/wanglou-server.service
 	@! grep -q '^CPUQuota=' deploy/systemd/wanglou-server.service
 	@grep -Fqx 'ReadWritePaths=/var/lib/wanglou' deploy/systemd/wanglou-server.service
+	@if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then \
+	  for compose in compose.yml backup.compose.yml; do \
+	    DOMAIN=ingest.example.invalid PANEL_DOMAIN=panel.example.invalid PRIMARY_DOMAIN=primary.example.invalid docker compose -f deploy/docker/$$compose config -q || exit 1; \
+	  done; \
+	  echo 'docker compose config: PASS (primary and backup)'; \
+	else echo 'docker compose config: SKIP (docker compose unavailable)'; fi
 	@echo 'deployment files and README: PASS'
 check: lint test cross-compile check-size check-agent-surface check-panel-assets check-files

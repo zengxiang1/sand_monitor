@@ -14,22 +14,22 @@ import (
 
 type Collector struct {
 	options Options
+	loginCollectors
 	hash    string
 	cpu     CPU
 	net     [2]uint64
 	at      time.Time
-	logins  *loginReader
 	sampled bool
 }
 
 func New(hash string) *Collector { c, _ := NewWithState(hash, "", Options{}); return c }
-func NewWithState(hash, statePath string, options Options) (*Collector, error) {
+func NewWithState(hash, statePath string, options Options, backupState ...string) (*Collector, error) {
 	options = options.defaults()
-	r, err := newLoginReader(options.WtmpPath, statePath)
+	r, err := newLoginCollectors(options.WtmpPath, statePath, backupState)
 	if err != nil {
 		return nil, err
 	}
-	return &Collector{hash: hash, logins: r, options: options}, nil
+	return &Collector{hash: hash, loginCollectors: r, options: options}, nil
 }
 func (c *Collector) Sample() (proto.Report, error) {
 	r := proto.Report{Version: 1, Bin: c.hash, OS: runtime.GOOS, Arch: runtime.GOARCH, Login: []proto.Login{}}
@@ -101,10 +101,6 @@ func (c *Collector) Sample() (proto.Report, error) {
 		return r, fmt.Errorf("invalid statfs counters")
 	}
 	r.Disk = [2]float64{float64(st.Blocks-st.Bfree) * float64(st.Bsize) / (1 << 30), float64(st.Blocks) * float64(st.Bsize) / (1 << 30)}
-	r.Login, e = c.logins.sample()
-	if e != nil {
-		return r, e
-	}
 	now := time.Now()
 	if c.sampled {
 		r.CPU = CPUPercent(c.cpu, cpu)
@@ -116,4 +112,3 @@ func (c *Collector) Sample() (proto.Report, error) {
 	c.sampled = true
 	return r, r.Validate()
 }
-func (c *Collector) Acknowledge(proto.Report) error { return c.logins.acknowledge() }

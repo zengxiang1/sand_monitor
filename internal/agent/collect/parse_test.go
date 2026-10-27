@@ -116,7 +116,7 @@ func TestCollectorFlow(t *testing.T) {
 	if e = r.Validate(); e != nil {
 		t.Fatal(e)
 	}
-	if e = c.Acknowledge(r); e != nil {
+	if e = c.Acknowledge("primary"); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = c.Sample(); e != nil {

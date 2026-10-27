@@ -12,17 +12,23 @@ import (
 // readings which could be mistaken for real host telemetry.
 type Collector struct {
 	options Options
-	hash    string
-	start   time.Time
+	loginCollectors
+	hash  string
+	start time.Time
 }
 
-func New(hash string) *Collector { return &Collector{hash: hash, start: time.Now()} }
+func New(hash string) *Collector { c, _ := NewWithState(hash, "", Options{}); return c }
 func (c *Collector) Sample() (proto.Report, error) {
 	return proto.Report{Version: 1, Bin: c.hash, OS: runtime.GOOS, Arch: runtime.GOARCH, Up: time.Since(c.start).Seconds(), Login: []proto.Login{}}, nil
 }
-func (c *Collector) Acknowledge(proto.Report) error { return nil }
-func NewWithState(hash, statePath string, options Options) (*Collector, error) {
-	c := New(hash)
+
+func NewWithState(hash, statePath string, options Options, backupState ...string) (*Collector, error) {
+	c := &Collector{hash: hash, start: time.Now()}
 	c.options = options.defaults()
+	readers, err := newLoginCollectors(c.options.WtmpPath, statePath, backupState)
+	if err != nil {
+		return nil, err
+	}
+	c.loginCollectors = readers
 	return c, nil
 }

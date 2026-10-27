@@ -20,11 +20,14 @@ func DefaultConfig() Config {
 }
 
 type Engine struct {
-	Store  *store.Store
-	Config Config
+	Store     *store.Store
+	Config    Config
+	StartedAt time.Time
 }
 
-func New(s *store.Store, c Config) *Engine { return &Engine{Store: s, Config: c} }
+func New(s *store.Store, c Config) *Engine {
+	return &Engine{Store: s, Config: c, StartedAt: time.Now()}
+}
 func lastState(tx *sql.Tx, node string) (string, error) {
 	var kind string
 	e := tx.QueryRow(`SELECT kind FROM events WHERE node=? AND kind IN ('offline','recovered') ORDER BY id DESC LIMIT 1`, node).Scan(&kind)
@@ -147,6 +150,9 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 	return nil
 }
 func (e *Engine) CheckOffline(now time.Time) error {
+	if now.Sub(e.StartedAt) < 3*e.Config.Interval+time.Minute {
+		return nil
+	}
 	return e.Store.Transaction(func(tx *sql.Tx) error {
 		rows, err := tx.Query(`SELECT name,created_at,last_seen FROM nodes WHERE revoked_at=0`)
 		if err != nil {

@@ -25,18 +25,27 @@ type Notifier interface {
 	Notify(context.Context, store.Event) error
 }
 type Webhook struct {
-	URL    string
-	Client *http.Client
+	Instance string
+	URL      string
+	Client   *http.Client
 }
 
 func (w Webhook) Kind() string { return "webhook" }
 func (w Webhook) ID() string   { return fmt.Sprintf("webhook:%x", sha256.Sum256([]byte(w.URL))) }
 func (w Webhook) Notify(ctx context.Context, e store.Event) error {
-	return post(ctx, w.Client, w.URL, e)
+	instance := w.Instance
+	if instance == "" {
+		instance = "望楼"
+	}
+	return post(ctx, w.Client, w.URL, struct {
+		store.Event
+		Instance string `json:"instance"`
+	}{e, instance})
 }
 
 type Telegram struct {
 	Token, ChatID string
+	Instance      string
 	Client        *http.Client
 	BaseURL       string
 }
@@ -50,7 +59,15 @@ func (t Telegram) Notify(ctx context.Context, e store.Event) error {
 	if base == "" {
 		base = "https://api.telegram.org"
 	}
-	return post(ctx, t.Client, base+"/bot"+url.PathEscape(t.Token)+"/sendMessage", map[string]string{"chat_id": t.ChatID, "text": fmt.Sprintf("望楼 · %s · %s：%s", e.Node, eventtext.Kind(e.Kind), e.Detail)})
+	instance := t.Instance
+	if instance == "" {
+		instance = "望楼"
+	}
+	text := fmt.Sprintf("%s · %s · %s：%s", instance, e.Node, eventtext.Kind(e.Kind), e.Detail)
+	if e.Kind == "peer" {
+		text = instance + " · " + e.Detail
+	}
+	return post(ctx, t.Client, base+"/bot"+url.PathEscape(t.Token)+"/sendMessage", map[string]string{"chat_id": t.ChatID, "text": text})
 }
 func post(ctx context.Context, client *http.Client, target string, payload any) error {
 	b, e := json.Marshal(payload)
@@ -82,6 +99,7 @@ func post(ctx context.Context, client *http.Client, target string, payload any) 
 type Dispatcher struct {
 	mu         sync.Mutex
 	Store      *store.Store
+	Scope      string
 	Notifiers  []Notifier
 	RetryDelay time.Duration
 }
@@ -89,6 +107,9 @@ type Dispatcher struct {
 func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.Scope == "security" && !slices.Contains([]string{"offline", "recovered", "login_new_ip", "bin_changed"}, event.Kind) {
+		return d.Store.MarkNotified(event.ID)
+	}
 	node, err := d.Store.Node(event.Node)
 	if err != nil {
 		return err
@@ -156,7 +177,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if len(d.Notifiers) > 0 {
+		if len(d.Notifiers) > 0 || d.Scope == "security" {
 			events, e := d.Store.Pending(32)
 			if e != nil {
 				log.Printf("notification queue: %v", e)

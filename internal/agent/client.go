@@ -98,6 +98,24 @@ func (c *Client) nextSeq() (uint64, error) {
 	return n, nil
 }
 func (c *Client) Send(ctx context.Context, r proto.Report) error {
+	return c.SendTo(ctx, "primary", r)
+}
+func (c *Client) target(target string) (string, error) {
+	switch target {
+	case "primary":
+		return c.config.Server, nil
+	case "backup":
+		if c.config.BackupServer != "" {
+			return c.config.BackupServer, nil
+		}
+	}
+	return "", fmt.Errorf("target %q is not configured", target)
+}
+func (c *Client) SendTo(ctx context.Context, target string, r proto.Report) error {
+	server, e := c.target(target)
+	if e != nil {
+		return e
+	}
 	if e := r.Validate(); e != nil {
 		return e
 	}
@@ -113,7 +131,7 @@ func (c *Client) Send(ctx context.Context, r proto.Report) error {
 		return e
 	}
 	ts := c.Now().Unix()
-	req, e := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.config.Server, "/")+"/v1/report", bytes.NewReader(body))
+	req, e := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(server, "/")+"/v1/report", bytes.NewReader(body))
 	if e != nil {
 		return e
 	}
@@ -136,6 +154,13 @@ func (c *Client) Send(ctx context.Context, r proto.Report) error {
 }
 
 func (c *Client) Enroll(ctx context.Context, code string) error {
+	return c.EnrollTo(ctx, "primary", code)
+}
+func (c *Client) EnrollTo(ctx context.Context, target, code string) error {
+	server, err := c.target(target)
+	if err != nil {
+		return err
+	}
 	body, err := json.Marshal(struct {
 		Code   string `json:"code"`
 		Pubkey string `json:"pubkey"`
@@ -143,7 +168,7 @@ func (c *Client) Enroll(ctx context.Context, code string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.config.Server, "/")+"/enroll", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(server, "/")+"/enroll", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,66 @@
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./backup.Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - public
+      - backend
+    depends_on:
+      wanglou-server:
+        condition: service_healthy
+
+  wanglou-server:
+    image: ${WANGLOU_SERVER_IMAGE:-wanglou-server:local}
+    build:
+      context: ../..
+      target: server
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    environment:
+      WANGLOU_DATABASE: /data/wanglou.db
+      WANGLOU_LISTEN: ":8080"
+      WANGLOU_INSTANCE_NAME: 望楼·备
+      WANGLOU_ALERT_SCOPE: security
+      WANGLOU_PEER_URL: https://${PRIMARY_DOMAIN:?Set PRIMARY_DOMAIN in .env}
+      WANGLOU_TIMEZONE: ${WANGLOU_TIMEZONE:-UTC}
+      WANGLOU_HEARTBEAT_URL: ${WANGLOU_HEARTBEAT_URL:-}
+      WANGLOU_LISTEN_PLAIN: "true"
+      WANGLOU_TRUSTED_PROXIES: ${WANGLOU_BACKEND_SUBNET:-172.30.0.0/24}
+      WANGLOU_TELEGRAM_TOKEN: ${WANGLOU_TELEGRAM_TOKEN:-}
+      WANGLOU_TELEGRAM_CHAT_ID: ${WANGLOU_TELEGRAM_CHAT_ID:-}
+      WANGLOU_WEBHOOK_URL: ${WANGLOU_WEBHOOK_URL:-}
+    volumes:
+      - server_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: [CMD, wanglou-server, healthcheck]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+networks:
+  public:
+  backend:
+    ipam:
+      config:
+        - subnet: ${WANGLOU_BACKEND_SUBNET:-172.30.0.0/24}
+
+volumes:
+  server_data:
+  caddy_data:
+  caddy_config:

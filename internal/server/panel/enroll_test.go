@@ -203,7 +203,7 @@ func TestHistoryBuckets120000Rows(t *testing.T) {
 	start := time.Now()
 	points, err := f.h.history("node", 7*24*time.Hour)
 	elapsed := time.Since(start)
-	if err != nil || len(points) > 360 || len(points) < 350 || elapsed >= 200*time.Millisecond {
+	if err != nil || len(points) > 360 || len(points) < 350 || elapsed >= historyTimeLimit {
 		t.Fatalf("points=%d duration=%s err=%v", len(points), elapsed, err)
 	}
 	if points[0].Mem != 50 || points[0].Disk != 50 {
@@ -218,7 +218,7 @@ func TestHistoryBuckets120000Rows(t *testing.T) {
 	start = time.Now()
 	w := f.request("GET", "/nodes/node?range=7d", nil, true)
 	elapsed = time.Since(start)
-	if w.Code != 200 || elapsed >= 200*time.Millisecond {
+	if w.Code != 200 || elapsed >= historyTimeLimit {
 		t.Fatal("chart render", w.Code, elapsed)
 	}
 	t.Logf("120000 rows: 7d chart render %s, <=360 points", elapsed)

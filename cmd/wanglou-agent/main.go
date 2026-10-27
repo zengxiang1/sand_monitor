@@ -35,6 +35,7 @@ func run(args []string) error {
 	case "init":
 		name := fs.String("name", "", "node name")
 		server := fs.String("server", "", "HTTPS server base URL")
+		backup := fs.String("backup-server", "", "backup HTTPS server base URL")
 		keyPath := fs.String("key", agent.DefaultKey, "private key path")
 		config := fs.String("config", agent.DefaultConfig, "local config path")
 		state := fs.String("state", "/var/lib/wanglou/agent.seq", "durable sequence path")
@@ -49,7 +50,7 @@ func run(args []string) error {
 		if fs.NArg() != 0 {
 			return fmt.Errorf("unexpected arguments")
 		}
-		c := agent.Config{Name: *name, Server: *server, Key: *keyPath, StateFile: *state, Interval: 5 * time.Second, InsecureHTTP: *insecure, ProcRoot: *procRoot, RootFS: *rootFS, WtmpPath: *wtmpPath}
+		c := agent.Config{Name: *name, Server: *server, BackupServer: *backup, Key: *keyPath, StateFile: *state, Interval: 5 * time.Second, InsecureHTTP: *insecure, ProcRoot: *procRoot, RootFS: *rootFS, WtmpPath: *wtmpPath}
 		if e := c.Validate(); e != nil {
 			return e
 		}
@@ -89,6 +90,7 @@ func run(args []string) error {
 		fmt.Println(proto.Fingerprint(key.Public().(ed25519.PublicKey)))
 		return nil
 	case "enroll":
+		backup := fs.Bool("backup", false, "submit to backup_server")
 		if len(args) < 2 || len(args[1]) != 9 || args[1][4] != '-' {
 			return fmt.Errorf("usage: wanglou-agent enroll <CODE> [--config path]")
 		}
@@ -111,7 +113,11 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err = client.Enroll(context.Background(), args[1]); err != nil {
+		target := "primary"
+		if *backup {
+			target = "backup"
+		}
+		if err = client.EnrollTo(context.Background(), target, args[1]); err != nil {
 			return err
 		}
 		fmt.Println(proto.Fingerprint(key.Public().(ed25519.PublicKey)))

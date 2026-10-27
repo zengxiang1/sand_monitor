@@ -36,6 +36,8 @@ services:
       WANGLOU_DATABASE: /data/wanglou.db
       WANGLOU_LISTEN: ":8080"
       WANGLOU_PANEL_LISTEN: ":8081"
+      WANGLOU_PEER_URL: ${BACKUP_DOMAIN:+https://${BACKUP_DOMAIN}}
+      WANGLOU_BACKUP_INGEST_URL: ${BACKUP_DOMAIN:+https://${BACKUP_DOMAIN}}
       WANGLOU_PUBLIC_INGEST_URL: https://${DOMAIN}
       WANGLOU_PUBLIC_DIR: /public
       WANGLOU_PUBLIC_URL: https://${STATUS_DOMAIN:-status.localhost}

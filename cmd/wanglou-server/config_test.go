@@ -197,3 +197,45 @@ func TestRetentionDaysConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestDualReceiverConfig(t *testing.T) {
+	c, err := loadConfigEnv("", nil)
+	if err != nil || c.InstanceName != "望楼" || c.AlertScope != "all" || c.PeerURL != "" || c.BackupIngestURL != "" {
+		t.Fatal(c, err)
+	}
+	path := filepath.Join(t.TempDir(), "dual.toml")
+	if err = os.WriteFile(path, []byte("instance_name='望楼·备'\nalert_scope='security'\npeer_url='https://primary.example.com'\nbackup_ingest_url='https://backup.example.com'\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = loadConfigEnv(path, nil)
+	if err != nil || c.InstanceName != "望楼·备" || c.AlertScope != "security" || c.PeerURL != "https://primary.example.com" || c.BackupIngestURL != "https://backup.example.com" {
+		t.Fatal(c, err)
+	}
+	c, err = loadConfigEnv(path, []string{"WANGLOU_INSTANCE_NAME=主", "WANGLOU_ALERT_SCOPE=all", "WANGLOU_PEER_URL=", "WANGLOU_BACKUP_INGEST_URL="})
+	if err != nil || c.InstanceName != "主" || c.AlertScope != "all" || c.PeerURL != "" || c.BackupIngestURL != "" {
+		t.Fatal(c, err)
+	}
+	for _, env := range []string{"WANGLOU_INSTANCE_NAME=一二三四五六七八九十一二三四五六七", "WANGLOU_ALERT_SCOPE=unknown", "WANGLOU_ALERT_SCOPE="} {
+		if _, err := loadConfigEnv("", []string{env}); err == nil {
+			t.Fatal("accepted", env)
+		}
+	}
+	if _, err := loadConfigEnv("", []string{"WANGLOU_INSTANCE_NAME=一二三四五六七八九十一二三四五六"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"PEER_URL", "BACKUP_INGEST_URL"} {
+		for _, value := range []string{"relative", "ftp://example.invalid", "https://user@example.invalid", "https://example.invalid?q=1", "https://example.invalid#fragment", "https://example.invalid?", "https://example.invalid#", "http://example.invalid"} {
+			c, err := loadConfigEnv("", []string{"WANGLOU_" + key + "=" + value, "WANGLOU_LISTEN_PLAIN=true", "WANGLOU_TRUSTED_PROXIES=192.0.2.0/24"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.validateTransport(false) == nil {
+				t.Fatal("accepted", key, value)
+			}
+		}
+		c, err := loadConfigEnv("", []string{"WANGLOU_" + key + "=http://peer.localhost", "WANGLOU_LISTEN=127.0.0.1:8080"})
+		if err != nil || c.validateTransport(true) != nil {
+			t.Fatal(c, err)
+		}
+	}
+}

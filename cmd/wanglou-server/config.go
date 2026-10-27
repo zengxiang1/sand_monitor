@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 	_ "time/tzdata"
+	"unicode/utf8"
 	"wanglou/internal/localconfig"
 	"wanglou/internal/server/alert"
 )
@@ -17,6 +18,7 @@ import (
 const defaultConfig = "/etc/wanglou/server.toml"
 
 type config struct {
+	InstanceName, AlertScope, PeerURL, BackupIngestURL                           string
 	Database, Listen, TLSCert, TLSKey, WebhookURL, TelegramToken, TelegramChatID string
 	Timezone, PublicDir, PublicURL, HeartbeatURL                                 string
 	RetentionDays                                                                int
@@ -32,7 +34,7 @@ type config struct {
 // errors. Environment variables override the file, including empty strings.
 func loadConfig(path string) (config, error) { return loadConfigEnv(path, os.Environ()) }
 func loadConfigEnv(path string, environment []string) (config, error) {
-	c := config{RetentionDays: 90, Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
+	c := config{InstanceName: "望楼", AlertScope: "all", RetentionDays: 90, Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
 	apply := func(key, value string, env bool) (err error) {
 		stringValue := func() (string, error) {
 			if env {
@@ -41,6 +43,14 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 			return localconfig.String(value)
 		}
 		switch key {
+		case "instance_name":
+			c.InstanceName, err = stringValue()
+		case "alert_scope":
+			c.AlertScope, err = stringValue()
+		case "peer_url":
+			c.PeerURL, err = stringValue()
+		case "backup_ingest_url":
+			c.BackupIngestURL, err = stringValue()
 		case "retention_days":
 			c.RetentionDays, err = strconv.Atoi(value)
 		case "timezone":
@@ -133,6 +143,9 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 			return c, fmt.Errorf("invalid environment variable %q: %w", name, err)
 		}
 	}
+	if utf8.RuneCountInString(c.InstanceName) > 16 || (c.AlertScope != "all" && c.AlertScope != "security") {
+		return c, fmt.Errorf("invalid instance_name or alert_scope")
+	}
 	if c.RetentionDays < 7 || c.RetentionDays > 3650 || c.Database == "" || c.Listen == "" || c.Alerts.Interval < time.Second || c.Alerts.Sustain < time.Second || !(c.Alerts.MemoryThreshold > 0 && c.Alerts.MemoryThreshold <= 100) || !(c.Alerts.DiskThreshold > 0 && c.Alerts.DiskThreshold <= 100) {
 		return c, fmt.Errorf("invalid configuration")
 	}
@@ -165,10 +178,13 @@ func (c config) validateTransport(insecure bool) error {
 			return fmt.Errorf("%s requires HTTPS", key)
 		}
 	}
-	if c.PublicIngestURL != "" {
-		u, err := url.Parse(c.PublicIngestURL)
-		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(insecure && u.Scheme == "http")) {
-			return fmt.Errorf("public_ingest_url requires HTTPS")
+	for key, value := range map[string]string{"public_ingest_url": c.PublicIngestURL, "peer_url": c.PeerURL, "backup_ingest_url": c.BackupIngestURL} {
+		if value == "" {
+			continue
+		}
+		u, err := url.Parse(value)
+		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(value, "#") || (u.Scheme != "https" && !(insecure && u.Scheme == "http")) {
+			return fmt.Errorf("%s requires HTTPS", key)
 		}
 	}
 	if insecure {

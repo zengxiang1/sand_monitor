@@ -24,7 +24,9 @@ func setupEngine(t *testing.T) (*Engine, time.Time) {
 	if e = s.AddNode("node", pub, now); e != nil {
 		t.Fatal(e)
 	}
-	return New(s, DefaultConfig()), now
+	engine := New(s, DefaultConfig())
+	engine.StartedAt = now.Add(-time.Hour)
+	return engine, now
 }
 func sampleReport() proto.Report {
 	return proto.Report{Version: 1, Bin: "sha256:" + strings.Repeat("a", 64), OS: "linux", Arch: "amd64", Mem: [2]float64{10, 100}, Disk: [2]float64{10, 100}, Login: []proto.Login{}}
@@ -48,6 +50,64 @@ func count(t *testing.T, e *Engine, kind string) int {
 	}
 	return n
 }
+
+func TestOfflineStartupGrace(t *testing.T) {
+	for _, interval := range []time.Duration{time.Second, 5 * time.Second, 20 * time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			e, now := setupEngine(t)
+			send(t, e, now, sampleReport())
+			pub, _, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = e.Store.AddNode("never-reported", pub, now); err != nil {
+				t.Fatal(err)
+			}
+			before := time.Now()
+			e = New(e.Store, DefaultConfig())
+			if e.StartedAt.Before(before) || e.StartedAt.After(time.Now()) {
+				t.Fatal("missing process start time", e.StartedAt)
+			}
+			e.Config.Interval = interval
+			e.StartedAt = now.Add(time.Hour)
+			grace := 3*interval + time.Minute
+			for _, elapsed := range []time.Duration{0, 3 * interval, grace - time.Nanosecond} {
+				if err := e.CheckOffline(e.StartedAt.Add(elapsed)); err != nil {
+					t.Fatal(err)
+				}
+				if got := count(t, e, "offline"); got != 0 {
+					t.Fatal("offline during startup grace", elapsed, got)
+				}
+			}
+			for _, elapsed := range []time.Duration{grace, grace + time.Second} {
+				if err := e.CheckOffline(e.StartedAt.Add(elapsed)); err != nil {
+					t.Fatal(err)
+				}
+				if got := count(t, e, "offline"); got != 2 {
+					t.Fatal("missing or duplicate offline after grace", elapsed, got)
+				}
+			}
+		})
+	}
+}
+
+func TestReportDuringStartupGrace(t *testing.T) {
+	e, now := setupEngine(t)
+	send(t, e, now, sampleReport())
+	e = New(e.Store, DefaultConfig())
+	e.StartedAt = now.Add(time.Hour)
+	if err := e.CheckOffline(e.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+	send(t, e, e.StartedAt.Add(time.Minute), sampleReport())
+	if err := e.CheckOffline(e.StartedAt.Add(3*e.Config.Interval + time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, e, "offline") != 0 || count(t, e, "recovered") != 0 {
+		t.Fatal("server restart created an offline/recovered pair")
+	}
+}
+
 func TestOfflineRecovered(t *testing.T) {
 	e, now := setupEngine(t)
 	r := sampleReport()
@@ -66,11 +126,15 @@ func TestOfflineRecovered(t *testing.T) {
 	}
 	// Engine recreation uses persisted state and does not repeat an event.
 	e = New(e.Store, DefaultConfig())
+	e.StartedAt = now.Add(21 * time.Second)
 	if err := e.CheckOffline(now.Add(21 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if count(t, e, "offline") != 1 {
 		t.Fatal("duplicate offline")
+	}
+	if state, err := e.Store.Node("node"); err != nil || state.LastSeen != now.Unix() {
+		t.Fatal("startup grace changed the node", state, err)
 	}
 	send(t, e, now.Add(22*time.Second), r)
 	send(t, e, now.Add(23*time.Second), r)

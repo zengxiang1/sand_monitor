@@ -484,3 +484,16 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 步骤 1 和 3 会提示换钥及保留历史；确认时保留登记时间、上报序号和历史数据，并写入 `node_reenable` 审计。
 吊销指纹永久保留，换名称或多轮换钥也不能复用已吊销的公钥；未吊销的名称仍拒绝覆盖。
 命令行 `node add` 同样拒绝已吊销的公钥，遇到已有名称仍然拒绝。
+
+## 双接收端
+
+备用接收端建议部署在另一家服务商，使用独立数据库、节点登记和通知渠道。两端运行同一个服务端二进制，不共享密钥、不同步数据，也不互相授权。
+
+1. 在备用机器复制 `deploy/docker/.env.example` 为 `.env`，把 `DOMAIN` 设为备用域名（如 `backup.example.com`），把 `PRIMARY_DOMAIN` 设为主端域名（如 `monitor.example.com`），配置备用端自己的通知渠道。运行 `docker compose -f backup.compose.yml up -d`（在 `deploy/docker` 下）。备用部署只有接收端和 Caddy，不启用面板或公开页，默认 `instance_name = "望楼·备"`、`alert_scope = "security"`。
+2. 主端 `.env` 设置 `BACKUP_DOMAIN=backup.example.com`，重新运行 `docker compose up -d`。这会启用对端检查与面板的备用接入提示；留空则不启用。两端每 30 秒检查另一端的 `/healthz`，连续 4 次失败通知不可达，恢复时通知一次。检查只看状态码，不改变本端接收或告警行为。
+3. 新节点运行 `sudo wanglou-agent init --name node-01 --server https://monitor.example.com --backup-server https://backup.example.com`。已有节点只需在本地配置加 `backup_server = "https://backup.example.com"` 后重启 agent。将同一条公钥分别登记在两端：`wanglou-server node add --name node-01 --pubkey '<init 输出的公钥行>'`。也可以在各自面板接入，备用端的注册码用 `wanglou-agent enroll <CODE> --backup` 提交；两端均需核对指纹后启用。
+4. 吊销时在两端分别运行 `wanglou-server node revoke --name node-01`（主端也可用面板）。主端的吊销不会替备用端作决定。
+
+agent 每周期只采样一次，两端独立发送、独立退避，忙碌目标跳过当次指标，不积压。登录游标分别持久化在 `<state_file>.logins.json` 和 `<state_file>.backup.logins.json`，各自在收到 204 后推进；一端恢复后补报它错过的登录，另一端不会重复收到。首次启用备用端时只建立登录基线，不发送历史记录。两个目标共享持久化 seq，每次发送独立签名，协议仍为 `wanglou-v1`。
+
+备用端在主端健康时仍会独立告警：被攻破的主端可以继续返回正常健康状态、同时吞掉告警，因此不能根据主端健康检查静默备用端。用 `alert_scope = "security"` 只推送失联、恢复、新 IP 登录和二进制变化，资源与账单事件仍记录并标为已处理；默认 `all` 推送全部。用 `instance_name`（最多 16 个字符，默认“望楼”）区分 Telegram 前缀和 Webhook 的 `instance` 字段。对端不可达和恢复通知不受告警范围影响。

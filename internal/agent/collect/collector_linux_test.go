@@ -33,13 +33,17 @@ func TestMountedHostCollection(t *testing.T) {
 	if r.Mem != ([2]float64{812, 2048}) || r.NetTotal != ([2]uint64{1532, 8841}) || r.Up != 864000.25 || r.Conn != ([2]uint64{3, 3}) || r.Disk[1] <= 0 || len(r.Login) != 0 {
 		t.Fatal(r)
 	}
-	if err = c.Acknowledge(r); err != nil {
+	if err = c.Acknowledge("primary"); err != nil {
 		t.Fatal(err)
 	}
 	appendRecords(t, wtmp, loginRecord("mounted-login", 101))
+	logins, err := c.Logins("primary")
+	if err != nil || len(logins) != 1 || logins[0].User != "mounted-login" {
+		t.Fatal(logins, err)
+	}
 	r, err = c.Sample()
-	if err != nil || len(r.Login) != 1 || r.Login[0].User != "mounted-login" {
-		t.Fatal(r.Login, err)
+	if err != nil || len(r.Login) != 0 {
+		t.Fatal("metrics included logins", r, err)
 	}
 	c.options.RootFS = filepath.Join(dir, "missing-root")
 	if _, err = c.Sample(); err == nil {

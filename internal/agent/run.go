@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 	"time"
 	"wanglou/internal/agent/collect"
+	"wanglou/internal/proto"
 )
 
 func ExecutableHash() (string, error) {
@@ -49,36 +51,100 @@ func Run(ctx context.Context, c Config) error {
 	if e != nil {
 		return e
 	}
-	collector, e := collect.NewWithState(hash, c.StateFile+".logins.json", collect.Options{ProcRoot: c.ProcRoot, RootFS: c.RootFS, WtmpPath: c.WtmpPath})
+	backupState := []string{}
+	if c.BackupServer != "" {
+		backupState = append(backupState, c.StateFile+".backup.logins.json")
+	}
+	collector, e := collect.NewWithState(hash, c.StateFile+".logins.json", collect.Options{ProcRoot: c.ProcRoot, RootFS: c.RootFS, WtmpPath: c.WtmpPath}, backupState...)
 	if e != nil {
 		return e
 	}
-	failures := 0
+	ticker := time.NewTicker(c.Interval)
+	defer ticker.Stop()
+	return runLoop(ctx, c, client, collector, ticker.C, Backoff)
+}
+
+type sampler interface {
+	Sample() (proto.Report, error)
+	Logins(string) ([]proto.Login, error)
+	Acknowledge(string) error
+}
+
+func runLoop(ctx context.Context, c Config, client *Client, collector sampler, ticks <-chan time.Time, backoff func(int) time.Duration) error {
+	type sender struct {
+		name      string
+		busy      bool
+		failures  int
+		ready     time.Time
+		lastError string
+		logged    time.Time
+	}
+	targets := []*sender{{name: "primary"}}
+	if c.BackupServer != "" {
+		targets = append(targets, &sender{name: "backup"})
+	}
+	type result struct {
+		sender *sender
+		err    error
+		at     time.Time
+	}
+	results := make(chan result, len(targets))
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	sample := func(now time.Time) {
+		r, err := collector.Sample()
+		if err != nil {
+			log.Printf("sample failed: %v", err)
+			return
+		}
+		for _, target := range targets {
+			if target.busy || now.Before(target.ready) {
+				continue
+			}
+			target.busy = true
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				report := r
+				logins, err := collector.Logins(target.name)
+				report.Login = logins
+				if err == nil {
+					err = client.SendTo(ctx, target.name, report)
+				}
+				if err == nil {
+					err = collector.Acknowledge(target.name)
+				}
+				results <- result{target, err, time.Now()}
+			}()
+		}
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	sample(time.Now())
 	for {
-		if ctx.Err() != nil {
-			return nil
-		}
-		r, e := collector.Sample()
-		if e == nil {
-			e = client.Send(ctx, r)
-		}
-		if e == nil {
-			e = collector.Acknowledge(r)
-		}
-		delay := c.Interval
-		if e != nil {
-			failures++
-			delay = Backoff(failures)
-			log.Printf("report failed: %v", e)
-		} else {
-			failures = 0
-		}
-		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return nil
-		case <-timer.C:
+		case done := <-results:
+			target := done.sender
+			target.busy = false
+			if done.err == nil {
+				target.failures, target.lastError = 0, ""
+				target.ready = time.Time{}
+				continue
+			}
+			target.failures++
+			target.ready = done.at.Add(backoff(target.failures))
+			message := done.err.Error()
+			if message != target.lastError || done.at.Sub(target.logged) >= 10*time.Minute {
+				log.Printf("report to %s failed: %s", target.name, message)
+				target.lastError, target.logged = message, done.at
+			}
+		case now := <-ticks:
+			if ctx.Err() == nil {
+				sample(now)
+			}
 		}
 	}
 }

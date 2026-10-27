@@ -71,7 +71,7 @@ func TestHistorySourcesTailRangesAndPerformance(t *testing.T) {
 		}
 		w := f.request("GET", "/nodes/node?range="+tc.value, nil, true)
 		elapsed := time.Since(start)
-		if w.Code != 200 || elapsed >= 200*time.Millisecond || !strings.Contains(w.Body.String(), "数据精度："+tc.precision) {
+		if w.Code != 200 || elapsed >= historyTimeLimit || !strings.Contains(w.Body.String(), "数据精度："+tc.precision) {
 			t.Fatal(tc.value, w.Code, elapsed, w.Body)
 		}
 		t.Logf("%s: %d source rows, %d points, query + page render %s", tc.value, tc.rows, len(points), elapsed)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 	"wanglou/internal/agent/collect"
 	"wanglou/internal/localconfig"
@@ -16,10 +17,10 @@ const DefaultConfig = "/etc/wanglou/agent.toml"
 const DefaultKey = "/etc/wanglou/node.key"
 
 type Config struct {
-	Name, Server, Key, StateFile string
-	ProcRoot, RootFS, WtmpPath   string
-	Interval                     time.Duration
-	InsecureHTTP                 bool
+	Name, Server, BackupServer, Key, StateFile string
+	ProcRoot, RootFS, WtmpPath                 string
+	Interval                                   time.Duration
+	InsecureHTTP                               bool
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -30,6 +31,8 @@ func LoadConfig(path string) (Config, error) {
 			c.Name, e = localconfig.String(v)
 		case "server":
 			c.Server, e = localconfig.String(v)
+		case "backup_server":
+			c.BackupServer, e = localconfig.String(v)
 		case "key":
 			c.Key, e = localconfig.String(v)
 		case "state_file":
@@ -67,10 +70,22 @@ func (c Config) Validate() error {
 			return fmt.Errorf("collector paths must be absolute")
 		}
 	}
-	u, e := url.Parse(c.Server)
-	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(c.InsecureHTTP && u.Scheme == "http")) {
-		return fmt.Errorf("server requires HTTPS (or explicit insecure_http for local development)")
+	normalized := []string{}
+	for _, target := range []string{c.Server, c.BackupServer} {
+		if target == "" && len(normalized) > 0 {
+			continue
+		}
+		u, e := url.Parse(target)
+		if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(target, "#") || (u.Scheme != "https" && !(c.InsecureHTTP && u.Scheme == "http")) {
+			return fmt.Errorf("server requires HTTPS (or explicit insecure_http for local development)")
+		}
+		u.Scheme, u.Host = strings.ToLower(u.Scheme), strings.ToLower(u.Host)
+		normalized = append(normalized, strings.TrimRight(u.String(), "/"))
 	}
+	if len(normalized) == 2 && normalized[0] == normalized[1] {
+		return fmt.Errorf("backup_server must differ from server")
+	}
+
 	return nil
 }
 func WriteConfig(path string, c Config, force bool) error {
@@ -89,7 +104,7 @@ func WriteConfig(path string, c Config, force bool) error {
 	if e != nil {
 		return e
 	}
-	_, e = fmt.Fprintf(f, "name = %q\nserver = %q\nkey = %q\nstate_file = %q\ninterval = %q\ninsecure_http = %t\nproc_root = %q\nroot_fs = %q\nwtmp_path = %q\n", c.Name, c.Server, c.Key, c.StateFile, c.Interval.String(), c.InsecureHTTP, c.ProcRoot, c.RootFS, c.WtmpPath)
+	_, e = fmt.Fprintf(f, "name = %q\nserver = %q\nbackup_server = %q\nkey = %q\nstate_file = %q\ninterval = %q\ninsecure_http = %t\nproc_root = %q\nroot_fs = %q\nwtmp_path = %q\n", c.Name, c.Server, c.BackupServer, c.Key, c.StateFile, c.Interval.String(), c.InsecureHTTP, c.ProcRoot, c.RootFS, c.WtmpPath)
 	ce := f.Close()
 	if e != nil {
 		return e

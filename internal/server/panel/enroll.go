@@ -62,6 +62,7 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, sess session, a
 	if enabled := r.URL.Query().Get("enabled"); enabled != "" {
 		if node, err := h.Store.Node(enabled); err == nil {
 			data.Success = node.Name
+			data.BackupCommand = fmt.Sprintf("wanglou-server node add --name %s --pubkey '%s'", node.Name, proto.PublicKeyLine(node.Pubkey, node.Name))
 			data.NodeLink = "/nodes/" + node.Name
 		}
 	}
@@ -195,6 +196,9 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, sess session, a
 	}
 	data.Reenable = err == nil && node.RevokedAt != 0
 	data.Command = fmt.Sprintf("sudo wanglou-agent init --name %s --server '%s'", data.Name, strings.ReplaceAll(data.PublicURL, "'", "'\\''"))
+	if h.Config.BackupIngestURL != "" {
+		data.Command += " --backup-server '" + strings.ReplaceAll(h.Config.BackupIngestURL, "'", "'\\''") + "'"
+	}
 	if strings.HasPrefix(data.PublicURL, "http:") {
 		data.Command += " --insecure-http"
 	}
