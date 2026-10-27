@@ -137,3 +137,31 @@ func TestPanelConfiguration(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
+
+func TestPhaseThreeConfig(t *testing.T) {
+	c, err := loadConfigEnv("", []string{"WANGLOU_TIMEZONE=Asia/Shanghai", "WANGLOU_PUBLIC_DIR=/tmp/public", "WANGLOU_PUBLIC_URL=https://status.example.com", "WANGLOU_HEARTBEAT_URL=https://example.invalid/heartbeat?key=example", "WANGLOU_LISTEN=127.0.0.1:8443"})
+	if err != nil || c.Location == nil || c.Location.String() != "Asia/Shanghai" || c.PublicDir != "/tmp/public" {
+		t.Fatal(c, err)
+	}
+	if err = c.validateTransport(true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = loadConfigEnv("", []string{"WANGLOU_TIMEZONE=Missing/Zone"}); err == nil {
+		t.Fatal("invalid timezone")
+	}
+	for _, key := range []string{"PUBLIC_URL", "HEARTBEAT_URL"} {
+		for _, value := range []string{"http://example.invalid/path", "ftp://example.invalid", "relative", "https://user:pass@example.invalid"} {
+			c, err = loadConfigEnv("", []string{"WANGLOU_" + key + "=" + value, "WANGLOU_LISTEN_PLAIN=true", "WANGLOU_TRUSTED_PROXIES=192.0.2.0/24"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = c.validateTransport(false); err == nil {
+				t.Fatal("invalid URL accepted", key, value)
+			}
+		}
+	}
+	c, err = loadConfigEnv("", []string{"WANGLOU_PUBLIC_URL=http://status.localhost", "WANGLOU_HEARTBEAT_URL=http://heartbeat.localhost/", "WANGLOU_LISTEN=127.0.0.1:8443"})
+	if err != nil || c.validateTransport(true) != nil {
+		t.Fatal(c, err)
+	}
+}

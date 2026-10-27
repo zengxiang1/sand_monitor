@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata"
 	"wanglou/internal/localconfig"
 	"wanglou/internal/server/alert"
 )
@@ -17,6 +18,8 @@ const defaultConfig = "/etc/wanglou/server.toml"
 
 type config struct {
 	Database, Listen, TLSCert, TLSKey, WebhookURL, TelegramToken, TelegramChatID string
+	Timezone, PublicDir, PublicURL, HeartbeatURL                                 string
+	Location                                                                     *time.Location
 	ListenPlain                                                                  bool
 	PanelListen, PublicIngestURL                                                 string
 	PanelCookieSecure                                                            bool
@@ -28,7 +31,7 @@ type config struct {
 // errors. Environment variables override the file, including empty strings.
 func loadConfig(path string) (config, error) { return loadConfigEnv(path, os.Environ()) }
 func loadConfigEnv(path string, environment []string) (config, error) {
-	c := config{Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
+	c := config{Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
 	apply := func(key, value string, env bool) (err error) {
 		stringValue := func() (string, error) {
 			if env {
@@ -37,6 +40,14 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 			return localconfig.String(value)
 		}
 		switch key {
+		case "timezone":
+			c.Timezone, err = stringValue()
+		case "public_dir":
+			c.PublicDir, err = stringValue()
+		case "public_url":
+			c.PublicURL, err = stringValue()
+		case "heartbeat_url":
+			c.HeartbeatURL, err = stringValue()
 		case "database":
 			c.Database, err = stringValue()
 		case "panel_listen":
@@ -128,6 +139,11 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 	if c.ListenPlain && len(c.TrustedProxies) == 0 {
 		return c, fmt.Errorf("listen_plain requires trusted_proxies CIDRs")
 	}
+	var err error
+	c.Location, err = time.LoadLocation(c.Timezone)
+	if err != nil {
+		return c, fmt.Errorf("invalid timezone")
+	}
 	return c, nil
 }
 func (c config) validateTransport(insecure bool) error {
@@ -136,6 +152,15 @@ func (c config) validateTransport(insecure bool) error {
 	}
 	if !insecure && !c.PanelCookieSecure {
 		return fmt.Errorf("panel_cookie_secure=false requires --insecure-http")
+	}
+	for key, value := range map[string]string{"public_url": c.PublicURL, "heartbeat_url": c.HeartbeatURL} {
+		if value == "" {
+			continue
+		}
+		u, err := url.Parse(value)
+		if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && !(insecure && u.Scheme == "http")) {
+			return fmt.Errorf("%s requires HTTPS", key)
+		}
 	}
 	if c.PublicIngestURL != "" {
 		u, err := url.Parse(c.PublicIngestURL)

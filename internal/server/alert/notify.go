@@ -11,6 +11,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 	"wanglou/internal/server/store"
@@ -18,6 +20,7 @@ import (
 
 type Notifier interface {
 	ID() string
+	Kind() string
 	Notify(context.Context, store.Event) error
 }
 type Webhook struct {
@@ -25,7 +28,8 @@ type Webhook struct {
 	Client *http.Client
 }
 
-func (w Webhook) ID() string { return fmt.Sprintf("webhook:%x", sha256.Sum256([]byte(w.URL))) }
+func (w Webhook) Kind() string { return "webhook" }
+func (w Webhook) ID() string   { return fmt.Sprintf("webhook:%x", sha256.Sum256([]byte(w.URL))) }
 func (w Webhook) Notify(ctx context.Context, e store.Event) error {
 	return post(ctx, w.Client, w.URL, e)
 }
@@ -36,6 +40,7 @@ type Telegram struct {
 	BaseURL       string
 }
 
+func (t Telegram) Kind() string { return "telegram" }
 func (t Telegram) ID() string {
 	return fmt.Sprintf("telegram:%x", sha256.Sum256([]byte(t.BaseURL+"\n"+t.Token+"\n"+t.ChatID)))
 }
@@ -87,11 +92,17 @@ func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	if err != nil {
 		return err
 	}
-	if node.MutedUntil > event.Time || node.MutedUntil > time.Now().Unix() {
+	if event.Notified {
+		return nil
+	}
+	if event.Kind != "billing" && event.Kind != "traffic" && (node.MutedUntil > event.Time || node.MutedUntil > time.Now().Unix()) {
 		return d.Store.MarkNotified(event.ID)
 	}
 	var failures []error
 	for _, n := range d.Notifiers {
+		if event.Targets != "" && !slices.Contains(strings.Split(event.Targets, ","), n.Kind()) {
+			continue
+		}
 		delivered, err := d.Store.Delivered(event.ID, n.ID())
 		if err != nil {
 			return err

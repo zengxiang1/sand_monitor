@@ -12,11 +12,14 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"wanglou/internal/proto"
 	"wanglou/internal/server/ingest"
+	status "wanglou/internal/server/public"
 	"wanglou/internal/server/requestip"
 	"wanglou/internal/server/store"
 )
@@ -30,12 +33,17 @@ const loginLimitEntries = 4096
 
 var passwordHashes = make(chan struct{}, 2)
 
+type option struct{ Value, Label string }
+
 type Config struct {
-	CookieSecure    bool
-	PublicIngestURL string
-	TrustedProxies  []netip.Prefix
-	Interval        time.Duration
-	Channels        []string
+	CookieSecure                       bool
+	PublicIngestURL                    string
+	TrustedProxies                     []netip.Prefix
+	Interval                           time.Duration
+	Channels                           []string
+	PublicDir, PublicURL, HeartbeatURL string
+	HeartbeatStatus                    func(time.Time) string
+	Exporter                           *status.Exporter
 }
 type route struct {
 	pattern      string
@@ -44,6 +52,8 @@ type route struct {
 }
 
 var routes = []route{
+	{"GET /billing", true, false, "billing"}, {"POST /billing/{name}", false, false, "billing"}, {"POST /billing/{name}/renewed", false, false, "billing"},
+	{"GET /public", true, false, "public"}, {"POST /public", false, false, "public"}, {"POST /public/token", false, false, "public-token"}, {"POST /public/announcements", false, false, "announcement"}, {"POST /public/announcements/{id}/delete", false, false, "announcement-delete"}, {"GET /public/preview", true, false, "public-preview"},
 	{"GET /login", true, true, "login"}, {"POST /login", false, true, "login"}, {"GET /static/", false, true, "static"},
 	{"GET /{$}", true, false, "overview"}, {"GET /nodes/{name}", true, false, "node"}, {"GET /enroll", true, false, "enroll"},
 	{"POST /logout", false, false, "logout"}, {"POST /events/{id}/ack", false, false, "ack"},
@@ -80,7 +90,19 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 		panic(err)
 	}
 	h := &Handler{Store: s, Ingest: ing, Config: c, Now: time.Now, Logf: log.Printf, dummy: dummy, signingKey: randomToken(32), ips: map[string]failures{}, users: map[string]failures{}, mux: http.NewServeMux()}
-	h.templates = template.Must(template.New("panel").Funcs(template.FuncMap{"time": formatTime, "relative": func(ts int64) string { return relative(ts, h.Now()) }, "percent": percent, "number": formatNumber, "rate": formatRate, "memory": formatMemory, "uptime": formatUptime, "kind": eventKind, "clock": func(ts int64) string { return time.Unix(ts, 0).Format("15:04") }}).ParseFS(assets, "web/*.html"))
+	h.templates = template.Must(template.New("panel").Funcs(template.FuncMap{"time": formatTime, "has": func(f url.Values, k, v string) bool { return slices.Contains(f[k], v) }, "seq": func(n int) []int {
+		a := make([]int, n)
+		for i := range a {
+			a[i] = i + 1
+		}
+		return a
+	}, "str": strconv.Itoa, "cycle": func(s string) string { return cycleLabels[s] }, "annStatus": status.AnnouncementStatus, "lower": strings.ToLower, "listCycles": func() []string { return []string{"month", "quarter", "half", "year", "once"} }, "listCurrencies": func() []string { return []string{"CNY", "USD", "EUR"} }, "listDays": func() []string { return []string{"30", "14", "7", "3", "1"} }, "listPct": func() []string { return []string{"50", "80", "90", "95", "100"} }, "currency": store.CurrencySymbol, "directions": func() []option {
+		return []option{{"both", "上行 + 下行合计"}, {"out", "只算上行（出站）"}, {"in", "只算下行（入站）"}, {"max", "取两者中较大的"}}
+	}, "publicIntervals": func() []option {
+		return []option{{"30", "每 30 秒"}, {"60", "每 1 分钟"}, {"300", "每 5 分钟"}}
+	}, "annStatuses": func() []option {
+		return []option{{"investigating", "排查中"}, {"monitoring", "已修复，观察中"}, {"resolved", "已恢复"}, {"scheduled", "计划维护"}, {"done", "维护完成"}}
+	}, "relative": func(ts int64) string { return relative(ts, h.Now()) }, "percent": percent, "number": formatNumber, "rate": formatRate, "memory": formatMemory, "uptime": formatUptime, "kind": eventKind, "clock": func(ts int64) string { return time.Unix(ts, 0).Format("15:04") }}).ParseFS(assets, "web/*.html"))
 	static, _ := fs.Sub(assets, "web/static")
 	for _, entry := range routes {
 		h.mux.HandleFunc(entry.pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +143,11 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 			switch entry.action {
 			case "static":
 				name := strings.TrimPrefix(r.URL.Path, "/static/")
+				if name == "status.css" {
+					w.Header().Set("Content-Type", "text/css; charset=utf-8")
+					_, _ = w.Write(status.CSS())
+					return
+				}
 				info, err := fs.Stat(static, name)
 				if err != nil || info.IsDir() {
 					http.NotFound(w, r)
@@ -131,6 +158,10 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 				h.login(w, r)
 			case "logout":
 				h.logout(w, r, sess)
+			case "billing":
+				h.billing(w, r, sess)
+			case "public", "public-token", "announcement", "announcement-delete", "public-preview":
+				h.public(w, r, sess, entry.action)
 			case "overview":
 				h.overview(w, r, sess)
 			case "node":

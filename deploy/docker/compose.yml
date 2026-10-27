@@ -8,11 +8,13 @@ services:
     environment:
       DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
       PANEL_DOMAIN: ${PANEL_DOMAIN:?Set PANEL_DOMAIN in .env}
+      STATUS_DOMAIN: ${STATUS_DOMAIN:-status.localhost}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - status_public:/srv/status:ro
     networks:
       - public
       - backend
@@ -35,6 +37,10 @@ services:
       WANGLOU_LISTEN: ":8080"
       WANGLOU_PANEL_LISTEN: ":8081"
       WANGLOU_PUBLIC_INGEST_URL: https://${DOMAIN}
+      WANGLOU_PUBLIC_DIR: /public
+      WANGLOU_PUBLIC_URL: https://${STATUS_DOMAIN:-status.localhost}
+      WANGLOU_TIMEZONE: ${WANGLOU_TIMEZONE:-UTC}
+      WANGLOU_HEARTBEAT_URL: ${WANGLOU_HEARTBEAT_URL:-}
       WANGLOU_LISTEN_PLAIN: "true"
       WANGLOU_TRUSTED_PROXIES: ${WANGLOU_BACKEND_SUBNET:-172.30.0.0/24}
       WANGLOU_TELEGRAM_TOKEN: ${WANGLOU_TELEGRAM_TOKEN:-}
@@ -42,6 +48,7 @@ services:
       WANGLOU_WEBHOOK_URL: ${WANGLOU_WEBHOOK_URL:-}
     volumes:
       - server_data:/data
+      - status_public:/public
     networks:
       - backend
     healthcheck:
@@ -60,5 +67,6 @@ networks:
 
 volumes:
   server_data:
+  status_public:
   caddy_data:
   caddy_config:

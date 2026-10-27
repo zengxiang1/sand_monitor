@@ -18,8 +18,10 @@ var ErrReplay = errors.New("sequence replay")
 var ErrNode = errors.New("unknown or revoked node")
 
 type Store struct {
-	DB *sql.DB
-	mu sync.Mutex
+	DB       *sql.DB
+	mu       sync.Mutex
+	Location *time.Location
+	Interval time.Duration
 }
 type Node struct {
 	Name                           string
@@ -38,6 +40,7 @@ type Event struct {
 	Kind     string `json:"kind"`
 	Detail   string `json:"detail"`
 	Notified bool   `json:"notified"`
+	Targets  string `json:"targets,omitempty"`
 }
 
 func Open(path string) (*Store, error) {
@@ -46,7 +49,7 @@ func Open(path string) (*Store, error) {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	s := &Store{DB: db}
+	s := &Store{DB: db, Location: time.Local, Interval: 5 * time.Second}
 	if _, e = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`); e == nil {
 		e = s.Migrate()
 	}
@@ -63,13 +66,14 @@ func (s *Store) Migrate() error {
 		if e := tx.QueryRow(`PRAGMA user_version`).Scan(&version); e != nil {
 			return e
 		}
-		if version > 3 {
+		if version > 4 {
 			return fmt.Errorf("unsupported schema version %d", version)
 		}
-		if version == 3 {
+		if version == 4 {
 			return nil
 		}
-		_, e := tx.Exec(`
+		if version < 3 {
+			_, e := tx.Exec(`
  CREATE TABLE IF NOT EXISTS nodes(name TEXT PRIMARY KEY, pubkey BLOB NOT NULL, fingerprint TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER NOT NULL DEFAULT 0, last_seq TEXT NOT NULL DEFAULT '0', last_seen INTEGER NOT NULL DEFAULT 0, last_ip TEXT NOT NULL DEFAULT '', bin_hash TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS metrics(node TEXT NOT NULL REFERENCES nodes(name),ts INTEGER NOT NULL,cpu REAL,load1 REAL,load5 REAL,load15 REAL,mem_used REAL,mem_total REAL,swap_used REAL,swap_total REAL,disk_used REAL,disk_total REAL,net_tx REAL,net_rx REAL,net_total_tx TEXT,net_total_rx TEXT,tcp INTEGER,udp INTEGER,uptime REAL);
  CREATE INDEX IF NOT EXISTS metrics_node_ts ON metrics(node,ts);
@@ -82,10 +86,10 @@ func (s *Store) Migrate() error {
  CREATE TABLE IF NOT EXISTS resource_alerts(node TEXT NOT NULL REFERENCES nodes(name),resource TEXT NOT NULL,active INTEGER NOT NULL,last_seen INTEGER NOT NULL,PRIMARY KEY(node,resource));
  CREATE TABLE IF NOT EXISTS event_deliveries(event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,notifier TEXT NOT NULL,PRIMARY KEY(event_id,notifier));
 `)
-		if e != nil {
-			return e
-		}
-		_, e = tx.Exec(`ALTER TABLE nodes ADD COLUMN note TEXT NOT NULL DEFAULT '';
+			if e != nil {
+				return e
+			}
+			_, e = tx.Exec(`ALTER TABLE nodes ADD COLUMN note TEXT NOT NULL DEFAULT '';
  ALTER TABLE nodes ADD COLUMN os TEXT NOT NULL DEFAULT '';
  ALTER TABLE nodes ADD COLUMN arch TEXT NOT NULL DEFAULT '';
  ALTER TABLE nodes ADD COLUMN muted_until INTEGER NOT NULL DEFAULT 0;
@@ -96,7 +100,11 @@ func (s *Store) Migrate() error {
  CREATE TABLE enroll_codes(code_hash TEXT PRIMARY KEY,name TEXT NOT NULL,note TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,pubkey TEXT NOT NULL DEFAULT '',used_at INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE audit_log(id INTEGER PRIMARY KEY,ts INTEGER NOT NULL,user TEXT NOT NULL,ip TEXT NOT NULL,action TEXT NOT NULL,detail TEXT NOT NULL);
  PRAGMA user_version=3;`)
-		return e
+			if e != nil {
+				return e
+			}
+		}
+		return migrateBilling(tx)
 	})
 }
 func (s *Store) AddNode(name string, key ed25519.PublicKey, now time.Time) error {
@@ -193,6 +201,9 @@ func (s *Store) Accept(name string, seq uint64, now time.Time, ip string, r *pro
 		if _, e = tx.Exec(`INSERT INTO metrics VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, name, now.Unix(), r.CPU, r.Load[0], r.Load[1], r.Load[2], r.Mem[0], r.Mem[1], r.Swap[0], r.Swap[1], r.Disk[0], r.Disk[1], r.Net[0], r.Net[1], strconv.FormatUint(r.NetTotal[0], 10), strconv.FormatUint(r.NetTotal[1], 10), r.Conn[0], r.Conn[1], r.Up); e != nil {
 			return e
 		}
+		if e = s.account(tx, n, r, now); e != nil {
+			return e
+		}
 		if evaluate != nil {
 			if e = evaluate(tx, n); e != nil {
 				return e
@@ -207,7 +218,7 @@ func AddEvent(tx *sql.Tx, now time.Time, node, kind, detail string) error {
 	return e
 }
 func (s *Store) Pending(limit int) ([]Event, error) {
-	rows, e := s.DB.Query(`SELECT id,ts,node,kind,detail,notified FROM events WHERE notified=0 ORDER BY id LIMIT ?`, limit)
+	rows, e := s.DB.Query(`SELECT id,ts,node,kind,detail,notified,targets FROM events WHERE notified=0 ORDER BY id LIMIT ?`, limit)
 	if e != nil {
 		return nil, e
 	}
@@ -215,7 +226,7 @@ func (s *Store) Pending(limit int) ([]Event, error) {
 	out := []Event{}
 	for rows.Next() {
 		var v Event
-		if e = rows.Scan(&v.ID, &v.Time, &v.Node, &v.Kind, &v.Detail, &v.Notified); e != nil {
+		if e = rows.Scan(&v.ID, &v.Time, &v.Node, &v.Kind, &v.Detail, &v.Notified, &v.Targets); e != nil {
 			return nil, e
 		}
 		out = append(out, v)
@@ -238,6 +249,12 @@ func (s *Store) Cleanup(now time.Time) error {
 			return e
 		}
 		if _, e = tx.Exec(`DELETE FROM enroll_codes WHERE created_at<?`, now.Add(-24*time.Hour).Unix()); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`DELETE FROM daily WHERE day<?`, now.In(s.Location).AddDate(0, 0, -60).Format("2006-01-02")); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`DELETE FROM reminders WHERE ts<?`, now.AddDate(0, 0, -400).Unix()); e != nil {
 			return e
 		}
 		_, e = tx.Exec(`DELETE FROM audit_log WHERE ts<?`, now.Add(-90*24*time.Hour).Unix())

@@ -16,8 +16,10 @@ import (
 	"time"
 	"wanglou/internal/proto"
 	"wanglou/internal/server/alert"
+	"wanglou/internal/server/heartbeat"
 	"wanglou/internal/server/ingest"
 	"wanglou/internal/server/panel"
+	status "wanglou/internal/server/public"
 	"wanglou/internal/server/store"
 )
 
@@ -73,6 +75,8 @@ func run(args []string) error {
 		return e
 	}
 	defer s.Close()
+	s.Location = c.Location
+	s.Interval = c.Alerts.Interval
 	switch command {
 	case "admin add", "admin passwd", "admin reset-totp", "admin list", "admin remove":
 		return panel.Admin(s, command[len("admin "):], *user, *passwordStdin, os.Stdin, os.Stdout)
@@ -114,6 +118,8 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	engine := alert.New(s, c.Alerts)
+	heart := &heartbeat.Loop{URL: c.HeartbeatURL}
+	exporter := &status.Exporter{Store: s, Dir: c.PublicDir}
 	dispatcher := &alert.Dispatcher{Store: s}
 	if c.WebhookURL != "" {
 		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Webhook{URL: c.WebhookURL})
@@ -131,6 +137,8 @@ func run(args []string) error {
 		for {
 			if e := engine.CheckOffline(time.Now()); e != nil {
 				log.Printf("offline check: %v", e)
+			} else {
+				heart.Offline.Store(time.Now().Unix())
 			}
 			select {
 			case <-ctx.Done():
@@ -139,6 +147,41 @@ func run(args []string) error {
 			}
 		}
 	})
+	worker(func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			if err := s.CheckReminders(time.Now()); err != nil {
+				log.Printf("reminder check: %v", err)
+			} else {
+				heart.Reminders.Store(time.Now().Unix())
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	})
+	if c.HeartbeatURL != "" {
+		worker(func() {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := heart.Check(ctx, time.Now()); err != nil {
+						log.Printf("%v", err)
+					}
+				}
+			}
+		})
+	}
+	if c.PublicDir != "" {
+		worker(func() { exporter.Run(ctx) })
+	}
 	handler := ingest.New(s, engine)
 	handler.TrustedProxies = c.TrustedProxies
 	worker(func() { handler.RunLogging(ctx) })
@@ -156,7 +199,7 @@ func run(args []string) error {
 		if c.WebhookURL != "" {
 			channels = append(channels, "Webhook")
 		}
-		addServer(c.PanelListen, panel.New(s, handler, panel.Config{CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
+		addServer(c.PanelListen, panel.New(s, handler, panel.Config{PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
 	}
 	worker(func() {
 		<-ctx.Done()

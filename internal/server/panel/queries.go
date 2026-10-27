@@ -20,6 +20,7 @@ type nodeView struct {
 	Metric                         metric
 	Status, Tone, Spark, SparkArea string
 	Active                         bool
+	Tags                           []tag
 }
 type loginRecord struct {
 	Time     int64
@@ -27,7 +28,12 @@ type loginRecord struct {
 	Known    bool
 }
 type chart struct{ Title, Line, Line2, Area, Top, Mid, Zero, Start, End, Summary string }
+type tag struct{ Text, Tone string }
 type page struct {
+	Billing                                                                 billingPage
+	Public                                                                  publicPage
+	PublicDir, Heartbeat                                                    string
+	HeartbeatConfigured                                                     bool
 	Refresh                                                                 bool
 	Page, User, CSRF, Error, NodeLink                                       string
 	Nodes                                                                   []nodeView
@@ -104,14 +110,18 @@ func formatUptime(seconds float64) string {
 	return fmt.Sprintf("%d 分钟", minutes)
 }
 func eventKind(kind string) string {
-	names := map[string]string{"login_new_ip": "新登录", "offline": "失联", "recovered": "恢复", "bin_changed": "二进制变化", "resource": "资源告警"}
+	names := map[string]string{"login_new_ip": "新登录", "offline": "失联", "recovered": "恢复", "bin_changed": "二进制变化", "resource": "资源告警", "billing": "续费", "traffic": "流量", "traffic_reset": "流量"}
 	if label, ok := names[kind]; ok {
 		return label
 	}
 	return kind
 }
 func (h *Handler) base(sess session) page {
-	return page{User: sess.User, CSRF: sess.CSRF, Channels: h.Config.Channels, Interval: fmt.Sprintf("%.0f 秒", h.Config.Interval.Seconds())}
+	heartbeat := "未配置"
+	if h.Config.HeartbeatStatus != nil {
+		heartbeat = h.Config.HeartbeatStatus(h.Now())
+	}
+	return page{PublicDir: h.Config.PublicDir, Heartbeat: heartbeat, HeartbeatConfigured: h.Config.HeartbeatURL != "", User: sess.User, CSRF: sess.CSRF, Channels: h.Config.Channels, Interval: fmt.Sprintf("%.0f 秒", h.Config.Interval.Seconds())}
 }
 func (h *Handler) latest(name string) (metric, error) {
 	var m metric
@@ -171,9 +181,31 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 		h.serverError(w, err)
 		return
 	}
+	data.Billing, err = h.billingData()
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
 	sort.SliceStable(nodes, func(i, j int) bool { return nodes[i].RevokedAt == 0 && nodes[j].RevokedAt != 0 })
 	for _, n := range nodes {
 		v, err := h.view(n)
+		if n.RevokedAt == 0 {
+			for _, b := range data.Billing.Rows {
+				if b.Name == n.Name {
+					if b.HasExpiry && b.Days <= 7 {
+						label := fmt.Sprintf("%d 天后到期", b.Days)
+						if b.Days < 0 {
+							label = "已过期"
+						}
+						v.Tags = append(v.Tags, tag{label, b.DueTone})
+					}
+					if b.Pct >= 80 {
+						v.Tags = append(v.Tags, tag{fmt.Sprintf("流量 %d%%", b.Pct), b.Tone})
+					}
+					break
+				}
+			}
+		}
 		if err != nil {
 			h.serverError(w, err)
 			return

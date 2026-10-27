@@ -51,6 +51,7 @@ func TestWebhookAndTelegram(t *testing.T) {
 
 type notifyFunc func(context.Context, store.Event) error
 
+func (f notifyFunc) Kind() string                                  { return "webhook" }
 func (f notifyFunc) ID() string                                    { return "test" }
 func (f notifyFunc) Notify(c context.Context, e store.Event) error { return f(c, e) }
 func TestRetryThreeTimesAndMark(t *testing.T) {
@@ -244,6 +245,54 @@ func TestMutedEventsAreRecordedAndProcessed(t *testing.T) {
 		t.Fatal(pending, err)
 	}
 	if err = d.Deliver(context.Background(), pending[0]); err != nil || calls != 1 {
+		t.Fatal(calls, err)
+	}
+}
+
+type channelNotifier struct {
+	channel string
+	notifyFunc
+}
+
+func (n channelNotifier) Kind() string { return n.channel }
+func (n channelNotifier) ID() string   { return n.channel }
+func TestBillingTrafficTargetsAndMute(t *testing.T) {
+	e, now := setupEngine(t)
+	if _, err := e.Store.DB.Exec(`UPDATE nodes SET muted_until=?`, time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]int{}
+	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{channelNotifier{"telegram", func(context.Context, store.Event) error { calls["telegram"]++; return nil }}, channelNotifier{"webhook", func(context.Context, store.Event) error { calls["webhook"]++; return nil }}}}
+	for _, kind := range []string{"billing", "traffic"} {
+		result, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail,targets) VALUES(?,'node',?,'','telegram')`, now.Unix(), kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		id, _ := result.LastInsertId()
+		if err = d.Deliver(context.Background(), store.Event{ID: id, Time: now.Unix(), Node: "node", Kind: kind, Targets: "telegram"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls["telegram"] != 2 || calls["webhook"] != 0 {
+		t.Fatal(calls)
+	}
+	result, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail,notified) VALUES(?,'node','billing','',1)`, now.Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := result.LastInsertId()
+	if err = d.Deliver(context.Background(), store.Event{ID: id, Node: "node", Kind: "billing", Notified: true}); err != nil || calls["telegram"] != 2 {
+		t.Fatal(calls, err)
+	}
+	if _, err = e.Store.DB.Exec(`UPDATE nodes SET muted_until=0`); err != nil {
+		t.Fatal(err)
+	}
+	result, err = e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail) VALUES(?,'node','offline','legacy')`, now.Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ = result.LastInsertId()
+	if err = d.Deliver(context.Background(), store.Event{ID: id, Node: "node", Time: now.Unix(), Kind: "offline"}); err != nil || calls["telegram"] != 3 || calls["webhook"] != 1 {
 		t.Fatal(calls, err)
 	}
 }

@@ -10,6 +10,7 @@ ARG TARGETOS=linux
 ARG TARGETARCH
 
 FROM build AS build-server
+RUN mkdir -m 0755 /public
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/wanglou-server ./cmd/wanglou-server
 
 FROM build AS build-agent
@@ -18,6 +19,7 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /ou
 FROM gcr.io/distroless/static-debian12:nonroot AS server
 COPY --from=build-server /out/wanglou-server /usr/local/bin/wanglou-server
 COPY --from=build-server --chown=65532:65532 /state /data
+COPY --from=build-server --chown=65532:65532 /public /public
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/wanglou-server"]
 CMD ["serve"]
