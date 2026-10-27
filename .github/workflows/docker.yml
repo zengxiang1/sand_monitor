@@ -4,6 +4,7 @@ name: Docker images
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -13,7 +14,7 @@ jobs:
       matrix:
         target: [server, agent]
     env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4.2.2
@@ -35,7 +36,7 @@ jobs:
       - uses: docker/login-action@v3.4.0
         if: steps.publish.outputs.push == 'true'
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/metadata-action@v5.7.0
         id: meta

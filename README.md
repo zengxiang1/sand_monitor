@@ -309,16 +309,20 @@ Use `https://<DOMAIN>:8443` for these agents. This TLS deployment leaves
 
 `ci.yml` runs vet, uncached tests, the agent surface check and deployment file
 checks for pushes and pull requests. To publish images from your own repository,
-add these two repository **Actions secrets**:
+add these in the repository's Actions settings:
 
-- `DOCKERHUB_USERNAME`: your Docker Hub account.
-- `DOCKERHUB_TOKEN`: a Docker Hub access token with push permission (not a password).
+- `DOCKERHUB_USERNAME`: your Docker Hub account, as an Actions **variable** or secret.
+- `DOCKERHUB_TOKEN`: a Docker Hub access token with push permission (not a password),
+  as an Actions **secret**.
+
+After adding them, run the "Docker images" workflow manually (Actions → Run workflow)
+or push to main.
 
 `docker.yml` builds both targets for `linux/amd64` and `linux/arm64`. A `v1.2.3`
 tag publishes `1.2.3`, `1.2`, and `latest`; main publishes `edge` and
 `sha-<short-hash>`. Destinations are
 `docker.io/<DOCKERHUB_USERNAME>/sand-monitor-server` and `sand-monitor-agent`.
-Without both secrets, and always on PRs, it only builds and does not log in or
+Without both values, and always on PRs, it only builds and does not log in or
 push. Set the image variables in your private `.env` to your namespace after
 publishing. Workflows request only `contents: read`; actions use fixed versions.
 
