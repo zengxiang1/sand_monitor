@@ -525,3 +525,7 @@ Telegram 有两种配置方式：在面板“通知”（`/notify`）填写 bot 
 agent 每周期只采样一次，两端独立发送、独立退避，忙碌目标跳过当次指标，不积压。登录游标分别持久化在 `<state_file>.logins.json` 和 `<state_file>.backup.logins.json`，各自在收到 204 后推进；一端恢复后补报它错过的登录，另一端不会重复收到。首次启用备用端时只建立登录基线，不发送历史记录。两个目标共享持久化 seq，每次发送独立签名，协议仍为 `wanglou-v1`。
 
 备用端在主端健康时仍会独立告警：被攻破的主端可以继续返回正常健康状态、同时吞掉告警，因此不能根据主端健康检查静默备用端。用 `alert_scope = "security"` 只推送失联、恢复、新 IP 登录和二进制变化，资源与账单事件仍记录并标为已处理；默认 `all` 推送全部。用 `instance_name`（最多 16 个字符，默认“望楼”）区分 Telegram 前缀和 Webhook 的 `instance` 字段。对端不可达和恢复通知不受告警范围影响。
+
+## 第三方资源
+
+面板使用 Geist 与 Geist Mono 字体（来自 npm 包 `geist` 1.8.2，© Vercel，SIL Open Font License 1.1）。字体文件和许可证全文在 `internal/server/panel/web/static/fonts/`，随服务端二进制嵌入，面板不请求任何外部资源。

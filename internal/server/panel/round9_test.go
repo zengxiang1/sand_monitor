@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"wanglou/internal/server/store"
@@ -113,7 +114,7 @@ func TestNodeSwitcherAndLastNode(t *testing.T) {
 			if value == "server-23" {
 				want = value
 			}
-			if out.Code != 200 || !strings.Contains(out.Body.String(), `href="/nodes/`+want+`" >节点详情</a>`) {
+			if out.Code != 200 || !regexp.MustCompile(`<a href="/nodes/`+regexp.QuoteMeta(want)+`" ><svg aria-hidden="true"[^>]*>.*?</svg><span>节点</span></a>`).MatchString(out.Body.String()) {
 				t.Fatal(value, path, out.Code, out.Body)
 			}
 		}
@@ -121,7 +122,7 @@ func TestNodeSwitcherAndLastNode(t *testing.T) {
 	if err := f.s.Revoke("node", f.now); err != nil {
 		t.Fatal(err)
 	}
-	if w := f.request("GET", "/", nil, true); !strings.Contains(w.Body.String(), `href="/nodes/server-00" >节点详情</a>`) {
+	if w := f.request("GET", "/", nil, true); !regexp.MustCompile(`<a href="/nodes/server-00" ><svg aria-hidden="true"[^>]*>.*?</svg><span>节点</span></a>`).MatchString(w.Body.String()) {
 		t.Fatal(w.Body)
 	}
 	f.h.Config.CookieSecure = false

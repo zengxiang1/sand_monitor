@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +26,10 @@ type nodeView struct {
 	Active                         bool
 	Tags                           []tag
 }
+type eventView struct {
+	store.Event
+	LoginIP string
+}
 type loginRecord struct {
 	Time     int64
 	User, IP string
@@ -43,17 +48,18 @@ type page struct {
 	PublicDir, Heartbeat, Peer, BackupIngestURL, BackupCommand              string
 	HeartbeatConfigured                                                     bool
 	Refresh                                                                 bool
-	Page, User, CSRF, Error, NodeLink                                       string
+	Page, User, UserInitials, CSRF, Error, NodeLink                         string
 	Nodes                                                                   []nodeView
 	SwitchNodes                                                             []nodeView
 	Node                                                                    nodeView
 	Total, Online, Offline, Alerting, More                                  int
-	Events, Banners                                                         []store.Event
+	TotalNote, OnlineNote, OfflineNote, AlertingNote                        string
+	Events, Banners                                                         []eventView
 	Logins                                                                  []loginRecord
 	Charts                                                                  []chart
 	Stats                                                                   ingest.Statistics
 	Channels                                                                []string
-	Interval, Range                                                         string
+	Interval, Range, Cooldown                                               string
 	Name, Note, PublicURL, Command, State, Code, Pubkey, Success, Remaining string
 	Fingerprint                                                             []string
 	Expires                                                                 int64
@@ -150,7 +156,11 @@ func (h *Handler) base(sess session) page {
 	if h.Config.PeerStatus != nil {
 		peer = h.Config.PeerStatus(h.Now())
 	}
-	return page{Peer: peer, BackupIngestURL: h.Config.BackupIngestURL, PublicDir: h.Config.PublicDir, Heartbeat: heartbeat, HeartbeatConfigured: h.Config.HeartbeatURL != "", User: sess.User, CSRF: sess.CSRF, Channels: h.Config.Channels.Names(), Interval: fmt.Sprintf("%.0f 秒", h.Config.Interval.Seconds())}
+	cooldown := "已关闭"
+	if h.Config.NotifyCooldown > 0 {
+		cooldown = fmt.Sprintf("%g 分钟", h.Config.NotifyCooldown.Minutes())
+	}
+	return page{Cooldown: cooldown, Peer: peer, BackupIngestURL: h.Config.BackupIngestURL, PublicDir: h.Config.PublicDir, Heartbeat: heartbeat, HeartbeatConfigured: h.Config.HeartbeatURL != "", User: sess.User, CSRF: sess.CSRF, Channels: h.Config.Channels.Names(), Interval: fmt.Sprintf("%.0f 秒", h.Config.Interval.Seconds())}
 }
 func (h *Handler) latest(name string) (metric, error) {
 	var m metric
@@ -215,10 +225,12 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 		h.serverError(w, err)
 		return
 	}
+	active := 0
 	sort.SliceStable(nodes, func(i, j int) bool { return nodes[i].RevokedAt == 0 && nodes[j].RevokedAt != 0 })
 	for _, n := range nodes {
 		v, err := h.view(n)
 		if n.RevokedAt == 0 {
+			active++
 			for _, b := range data.Billing.Rows {
 				if b.Name == n.Name {
 					if b.HasExpiry && b.Days <= 7 {
@@ -266,6 +278,12 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 		}
 		data.Nodes = append(data.Nodes, v)
 		data.Total++
+		if v.Status == "失联" && data.OfflineNote == "" {
+			data.OfflineNote = v.Label() + " · 最近上报 " + relative(n.LastSeen, h.Now())
+		}
+		if v.Active && n.RevokedAt == 0 && n.LastSeen != 0 && data.AlertingNote == "" {
+			data.AlertingNote = v.Label() + " 的资源用量超过阈值"
+		}
 		if n.RevokedAt == 0 && n.LastSeen != 0 {
 			if v.Status == "失联" {
 				data.Offline++
@@ -276,6 +294,14 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 				data.Alerting++
 			}
 		}
+	}
+	data.TotalNote = fmt.Sprintf("%d 台未吊销 · %d 台已吊销", active, data.Total-active)
+	data.OnlineNote = fmt.Sprintf("%d 台在 %.0f 秒内上报", data.Online, 3*h.Config.Interval.Seconds())
+	if data.OfflineNote == "" {
+		data.OfflineNote = "已上报的节点均未失联"
+	}
+	if data.AlertingNote == "" {
+		data.AlertingNote = "当前没有持续的资源告警"
 	}
 	if len(nodes) > 0 {
 		data.NodeLink = "/nodes/" + nodes[0].Name
@@ -299,7 +325,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 	}
 	h.render(w, r, "overview", data, 200)
 }
-func (h *Handler) events(banner bool) ([]store.Event, error) {
+func (h *Handler) events(banner bool) ([]eventView, error) {
 	query := `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,n.display_name,e.suppressed FROM events e JOIN nodes n ON n.name=e.node ORDER BY e.id DESC LIMIT 20`
 	if banner {
 		query = `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,n.display_name,e.suppressed FROM events e JOIN nodes n ON n.name=e.node WHERE e.kind='login_new_ip' AND e.acked_at=0 ORDER BY e.id DESC LIMIT 5`
@@ -309,11 +335,21 @@ func (h *Handler) events(banner bool) ([]store.Event, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []store.Event
+	var out []eventView
 	for rows.Next() {
-		var event store.Event
+		var event eventView
 		if err = rows.Scan(&event.ID, &event.Time, &event.Node, &event.Kind, &event.Detail, &event.Notified, &event.DisplayName, &event.Suppressed); err != nil {
 			return nil, err
+		}
+		if event.Kind == "login_new_ip" {
+			_, ip, english := strings.Cut(event.Detail, " from ")
+			if !english {
+				_, rest, _ := strings.Cut(event.Detail, " 从 ")
+				ip, _, _ = strings.Cut(rest, " 登录")
+			}
+			if _, err := netip.ParseAddr(ip); err == nil {
+				event.LoginIP = ip
+			}
 		}
 		out = append(out, event)
 	}
@@ -457,7 +493,7 @@ func (h *Handler) node(w http.ResponseWriter, r *http.Request, sess session) {
 			top = formatRate(ceiling)
 			mid = formatRate(ceiling / 2)
 			zero = formatRate(0)
-			summary = "下行（蓝） / 上行（橙）"
+			summary = "下行（实线） / 上行（虚线）"
 		}
 		var line, line2 strings.Builder
 		start := h.Now().Add(-duration).Unix()

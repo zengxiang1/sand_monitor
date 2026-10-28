@@ -29,7 +29,7 @@ import (
 //go:embed web/*.html web/static/*
 var assets embed.FS
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 const loginError = "用户名、口令或验证码错误"
 const loginLimitEntries = 4096
 
@@ -46,6 +46,7 @@ type Config struct {
 	PublicIngestURL                    string
 	TrustedProxies                     []netip.Prefix
 	Interval                           time.Duration
+	NotifyCooldown                     time.Duration
 	Channels                           *alert.Channels
 	PublicDir, PublicURL, HeartbeatURL string
 	HeartbeatStatus                    func(time.Time) string
@@ -299,6 +300,8 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, da
 			}
 		}
 	}
+	userRunes := []rune(data.User)
+	data.UserInitials = string(userRunes[:min(2, len(userRunes))])
 	data.Page = name
 	data.Refresh = data.User != "" && (name == "overview" || name == "node" || name == "enroll" && data.Code != "" && data.Pubkey == "")
 	var output bytes.Buffer

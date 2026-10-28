@@ -222,7 +222,7 @@ func TestLoginPageLayoutAndFields(t *testing.T) {
 		}
 	}
 	w = f.request("GET", "/", nil, true)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "<header>") || !strings.Contains(w.Body.String(), "<footer>") || strings.Contains(w.Body.String(), `class="login-page"`) {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `<header class="topbar">`) || !strings.Contains(w.Body.String(), "<footer>") || strings.Contains(w.Body.String(), `class="login-page"`) {
 		t.Fatal("authenticated page lost panel layout", w.Code, w.Body)
 	}
 }

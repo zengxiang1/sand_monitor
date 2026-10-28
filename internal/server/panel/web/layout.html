@@ -1,8 +1,26 @@
 {{define "layout"}}<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>望楼 · 只读面板</title><link rel="stylesheet" href="/static/panel.css"><script src="/static/panel.js" defer></script></head><body>
-{{if ne .Page "login"}}<header><div class="header"><a class="brand" href="/">望楼</a><span class="muted mono">wanglou</span>{{if .User}}<nav aria-label="主导航"><a href="/" {{if eq .Page "overview"}}aria-current="page"{{end}}>总览</a><a href="{{if .NodeLink}}{{.NodeLink}}{{else}}/#servers{{end}}" {{if eq .Page "node"}}aria-current="page"{{end}}>节点详情</a><a href="/billing" {{if eq .Page "billing"}}aria-current="page"{{end}}>续费与流量</a><a href="/notify" {{if eq .Page "notify"}}aria-current="page"{{end}}>通知</a><a href="/public" {{if eq .Page "public"}}aria-current="page"{{end}}>公开页</a><a href="/enroll" {{if eq .Page "enroll"}}aria-current="page"{{end}}>接入节点</a></nav><div class="account"><span class="badge ok">♧ 只读面板 · 无下行通道</span><span class="muted">{{.User}} · 已通过 TOTP</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="small">登出</button></form></div>{{end}}</div></header>{{end}}
-<main id="panel-content" {{if eq .Page "login"}}class="login-page"{{end}} {{if .Refresh}}data-refresh="true"{{end}}>{{template "content" .}}</main>
-{{if ne .Page "login"}}<footer>这个面板只读取节点主动上报的数据，无法连接、登录或控制任何服务器。</footer>{{end}}</body></html>{{end}}
+{{if eq .Page "login"}}<main id="panel-content" class="login-page">{{template "content" .}}</main>{{else}}
+<div class="panel-shell">
+<aside class="sidebar" aria-label="面板侧栏">
+<a class="brand" href="/"><span class="brand-logo"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h14 M7 9l-2-3h14l-2 3 M8 9v12 M16 9v12 M8 14h8 M6 21h12 M12 3v3"/></svg></span><span><strong>望楼</strong><small>只读面板 · 无下行通道</small></span></a>
+<nav class="sidebar-nav" aria-label="主导航"><div class="nav-group"><p class="nav-label">监控</p>
+<a href="/" {{if eq .Page "overview"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg><span>总览</span></a>
+<a href="{{if .NodeLink}}{{.NodeLink}}{{else}}/#servers{{end}}" {{if eq .Page "node"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v6H4z M4 14h16v6H4z M7 7h.01 M7 17h.01"/></svg><span>节点</span></a>
+<a href="/billing" {{if eq .Page "billing"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v14H3z M3 10h18 M7 15h4"/></svg><span>续费与流量</span></a>
+</div>
+<div class="nav-group"><p class="nav-label">设置</p>
+<a href="/notify" {{if eq .Page "notify"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4"/></svg><span>通知</span></a>
+<a href="/public" {{if eq .Page "public"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></svg><span>公开页</span></a>
+<a href="/enroll" {{if eq .Page "enroll"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14 M5 12h14"/></svg><span>接入节点</span></a>
+</div></nav>
+<div class="account"><span class="avatar" aria-hidden="true">{{.UserInitials}}</span><div class="account-name"><strong>{{.User}}</strong><small>已通过 TOTP</small></div><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="ghost small">登出</button></form></div>
+</aside>
+<div class="panel-main">
+<header class="topbar"><nav class="breadcrumb" aria-label="面包屑"><a href="/">望楼</a><span aria-hidden="true">/</span>{{if eq .Page "node"}}<a href="{{.NodeLink}}">节点</a><span aria-hidden="true">/</span><span aria-current="page">{{.Node.Label}}</span>{{else}}<span aria-current="page">{{if eq .Page "overview"}}总览{{else if eq .Page "billing"}}续费与流量{{else if eq .Page "notify"}}通知{{else if eq .Page "public"}}公开页{{else if eq .Page "enroll"}}接入节点{{end}}</span>{{end}}</nav><p class="topbar-status"><span class="status-dot ok" aria-hidden="true"></span>{{if .Refresh}}每 5 秒自动刷新{{else}}只读监控 · 无下行通道{{end}}</p></header>
+<main id="panel-content" {{if .Refresh}}data-refresh="true"{{end}}>{{template "content" .}}</main>
+<footer>这个面板只读取节点主动上报的数据，无法连接、登录或控制任何服务器。</footer>
+</div></div>{{end}}</body></html>{{end}}
 {{define "login"}}
 <section class="login-brand" aria-label="望楼">
   <div class="login-brand-name">

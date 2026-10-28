@@ -215,7 +215,7 @@ func run(args []string) error {
 	}
 	addServer(c.Listen, handler)
 	if c.PanelListen != "" {
-		addServer(c.PanelListen, panel.New(s, handler, panel.Config{PeerStatus: peerCheck.Status, BackupIngestURL: c.BackupIngestURL, MemoryThreshold: c.Alerts.MemoryThreshold, DiskThreshold: c.Alerts.DiskThreshold, Sustain: c.Alerts.Sustain, PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
+		addServer(c.PanelListen, panel.New(s, handler, panel.Config{PeerStatus: peerCheck.Status, BackupIngestURL: c.BackupIngestURL, MemoryThreshold: c.Alerts.MemoryThreshold, DiskThreshold: c.Alerts.DiskThreshold, Sustain: c.Alerts.Sustain, PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, NotifyCooldown: c.NotifyCooldown, Channels: channels}))
 	}
 	worker(func() {
 		<-ctx.Done()

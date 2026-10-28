@@ -21,6 +21,12 @@ func main() {
 			if entry.IsDir() {
 				return nil
 			}
+			switch filepath.Ext(path) {
+			case ".html", ".css", ".js":
+			default:
+				// Fonts and their license text are not loaded as page code.
+				return nil
+			}
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
