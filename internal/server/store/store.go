@@ -25,7 +25,7 @@ type Store struct {
 	RetentionDays int
 }
 type Node struct {
-	Name                           string
+	Name, DisplayName              string
 	Pubkey                         ed25519.PublicKey
 	Fingerprint                    string
 	CreatedAt, RevokedAt, LastSeen int64
@@ -35,13 +35,15 @@ type Node struct {
 	MutedUntil                     int64
 }
 type Event struct {
-	ID       int64  `json:"id"`
-	Time     int64  `json:"ts"`
-	Node     string `json:"node"`
-	Kind     string `json:"kind"`
-	Detail   string `json:"detail"`
-	Notified bool   `json:"notified"`
-	Targets  string `json:"targets,omitempty"`
+	ID          int64  `json:"id"`
+	Time        int64  `json:"ts"`
+	Node        string `json:"node"`
+	Kind        string `json:"kind"`
+	Detail      string `json:"detail"`
+	Notified    bool   `json:"notified"`
+	Targets     string `json:"targets,omitempty"`
+	DisplayName string `json:"display_name"`
+	Suppressed  bool   `json:"-"`
 }
 
 func Open(path string) (*Store, error) {
@@ -67,7 +69,7 @@ func (s *Store) Migrate() error {
 		if e := tx.QueryRow(`PRAGMA user_version`).Scan(&version); e != nil {
 			return e
 		}
-		if version > 6 {
+		if version > 7 {
 			return fmt.Errorf("unsupported schema version %d", version)
 		}
 		if version < 3 {
@@ -119,6 +121,19 @@ func (s *Store) Migrate() error {
 				return err
 			}
 		}
+		if version < 7 {
+			if _, err := tx.Exec(`ALTER TABLE nodes ADD COLUMN display_name TEXT NOT NULL DEFAULT '';
+ ALTER TABLE events ADD COLUMN cooldown_key TEXT NOT NULL DEFAULT '';
+ ALTER TABLE events ADD COLUMN cooldown_decided INTEGER NOT NULL DEFAULT 0;
+ ALTER TABLE events ADD COLUMN suppressed INTEGER NOT NULL DEFAULT 0;
+ ALTER TABLE events ADD COLUMN notification_detail TEXT NOT NULL DEFAULT '';
+ CREATE INDEX events_cooldown ON events(node,cooldown_key,id);
+ CREATE TABLE notify_cooldowns(node TEXT NOT NULL REFERENCES nodes(name),key TEXT NOT NULL,expires_at INTEGER NOT NULL,warned INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(node,key));
+ CREATE INDEX notify_cooldowns_expiry ON notify_cooldowns(expires_at);
+ PRAGMA user_version=7;`); err != nil {
+				return err
+			}
+		}
 		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS revoked_keys(fingerprint TEXT PRIMARY KEY,node TEXT NOT NULL,revoked_at INTEGER NOT NULL);
  INSERT OR IGNORE INTO revoked_keys SELECT fingerprint,name,revoked_at FROM nodes WHERE revoked_at>0;`)
 		return err
@@ -143,15 +158,27 @@ type scanner interface{ Scan(...any) error }
 
 func scanNode(row scanner) (n Node, e error) {
 	var seq string
-	e = row.Scan(&n.Name, &n.Pubkey, &n.Fingerprint, &n.CreatedAt, &n.RevokedAt, &seq, &n.LastSeen, &n.LastIP, &n.BinHash, &n.Note, &n.OS, &n.Arch, &n.MutedUntil)
+	e = row.Scan(&n.Name, &n.Pubkey, &n.Fingerprint, &n.CreatedAt, &n.RevokedAt, &seq, &n.LastSeen, &n.LastIP, &n.BinHash, &n.Note, &n.OS, &n.Arch, &n.MutedUntil, &n.DisplayName)
 	if e == nil {
 		n.LastSeq, e = strconv.ParseUint(seq, 10, 64)
 	}
 	return
 }
 
-const columns = `name,pubkey,fingerprint,created_at,revoked_at,last_seq,last_seen,last_ip,bin_hash,note,os,arch,muted_until`
+const columns = `name,pubkey,fingerprint,created_at,revoked_at,last_seq,last_seen,last_ip,bin_hash,note,os,arch,muted_until,display_name`
 
+func (n Node) Label() string {
+	if n.DisplayName != "" {
+		return n.DisplayName
+	}
+	return n.Name
+}
+func (e Event) Label() string {
+	if e.DisplayName != "" {
+		return e.DisplayName
+	}
+	return e.Node
+}
 func (s *Store) Node(name string) (Node, error) {
 	return scanNode(s.DB.QueryRow(`SELECT `+columns+` FROM nodes WHERE name=?`, name))
 }
@@ -307,6 +334,9 @@ func (s *Store) Cleanup(now time.Time) error {
 			return e
 		}
 		if _, e = tx.Exec(`DELETE FROM reminders WHERE ts<?`, now.AddDate(0, 0, -400).Unix()); e != nil {
+			return e
+		}
+		if _, e = tx.Exec(`DELETE FROM notify_cooldowns WHERE expires_at<=?`, now.UnixNano()); e != nil {
 			return e
 		}
 		_, e = tx.Exec(`DELETE FROM audit_log WHERE ts<?`, now.Add(-90*24*time.Hour).Unix())

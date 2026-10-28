@@ -65,6 +65,7 @@ var routes = []route{
 	{"GET /{$}", true, false, "overview"}, {"GET /nodes/{name}", true, false, "node"}, {"GET /enroll", true, false, "enroll"},
 	{"POST /logout", false, false, "logout"}, {"POST /events/{id}/ack", false, false, "ack"},
 	{"POST /nodes/{name}/mute", false, false, "mute"}, {"POST /nodes/{name}/revoke", false, false, "revoke"},
+	{"POST /nodes/{name}/display-name", false, false, "node_display_name"},
 	{"POST /nodes/{name}/note", false, false, "note"}, {"POST /nodes/{name}/known-ip", false, false, "known-ip"},
 	{"POST /enroll/preview", false, false, "preview"}, {"POST /enroll/codes", false, false, "codes"}, {"POST /enroll/confirm", false, false, "confirm"},
 }
@@ -271,6 +272,32 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, name string, da
 			return
 		}
 		data.PublicHome = c.Access == "public"
+	}
+	if data.User != "" {
+		nodes, err := h.Store.Nodes()
+		if err != nil {
+			h.serverError(w, err)
+			return
+		}
+		last := ""
+		if cookie, err := r.Cookie("wanglou_last_node"); err == nil {
+			last = cookie.Value
+		}
+		if name == "node" && data.Node.RevokedAt == 0 {
+			last = data.Node.Name
+		}
+		data.NodeLink = ""
+		for _, node := range nodes {
+			if node.RevokedAt != 0 {
+				continue
+			}
+			if data.NodeLink == "" || node.Name == last {
+				data.NodeLink = "/nodes/" + node.Name
+			}
+			if node.Name == last {
+				break
+			}
+		}
 	}
 	data.Page = name
 	data.Refresh = data.User != "" && (name == "overview" || name == "node" || name == "enroll" && data.Code != "" && data.Pubkey == "")

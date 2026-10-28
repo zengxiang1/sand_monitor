@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 	"wanglou/internal/server/requestip"
 )
 
@@ -73,6 +76,18 @@ func (h *Handler) mutate(w http.ResponseWriter, r *http.Request, sess session, a
 	var query string
 	var value string
 	switch action {
+	case "node_display_name":
+		value = r.PostForm.Get("display_name")
+		if !utf8.ValidString(value) || strings.ContainsFunc(value, unicode.IsControl) {
+			http.Error(w, "显示名不能包含控制字符", 400)
+			return
+		}
+		value = strings.TrimSpace(value)
+		if utf8.RuneCountInString(value) > 32 {
+			http.Error(w, "显示名最多 32 个字符", 400)
+			return
+		}
+		query = `UPDATE nodes SET display_name=? WHERE name=?`
 	case "note":
 		note := r.PostForm.Get("note")
 		if !safeNote(note) {
@@ -132,7 +147,11 @@ func (h *Handler) mutate(w http.ResponseWriter, r *http.Request, sess session, a
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(`INSERT INTO audit_log(ts,user,ip,action,detail) VALUES(?,?,?,?,?)`, now.Unix(), sess.User, ip, action, name)
+		detail := name
+		if action == "node_display_name" {
+			detail += " · " + value
+		}
+		_, err = tx.Exec(`INSERT INTO audit_log(ts,user,ip,action,detail) VALUES(?,?,?,?,?)`, now.Unix(), sess.User, ip, action, detail)
 		return err
 	})
 	if err == sql.ErrNoRows {

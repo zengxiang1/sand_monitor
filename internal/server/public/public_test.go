@@ -34,7 +34,7 @@ func publicFixture(t *testing.T) (*store.Store, PublicConfig, time.Time) {
 			t.Fatal(err)
 		}
 	}
-	if _, err = s.DB.Exec(`UPDATE nodes SET note='leak_note_58',fingerprint='leak_fingerprint_59'`); err != nil {
+	if _, err = s.DB.Exec(`UPDATE nodes SET display_name='leak_display_name_61',note='leak_note_58',fingerprint='leak_fingerprint_59'`); err != nil {
 		t.Fatal(err)
 	}
 	b := store.DefaultBilling("leak_node_51")
@@ -62,7 +62,7 @@ func TestExportWhitelistAndDisabledFields(t *testing.T) {
 	if err := e.Export(now); err != nil {
 		t.Fatal(err)
 	}
-	markers := []string{"leak_node_51", "unselected_node_52", "revoked_node_53", "leak_bin_54", "leak_os_55", "leak_arch_56", "leak_user_57", "leak_note_58", "leak_fingerprint_59", "leak_provider_60", "192.0.2.77", "192.0.2.78", "not public", "revoked display", `href="/login"`, `href="/static/`, "/public"}
+	markers := []string{"leak_display_name_61", `"display_name"`, "leak_node_51", "unselected_node_52", "revoked_node_53", "leak_bin_54", "leak_os_55", "leak_arch_56", "leak_user_57", "leak_note_58", "leak_fingerprint_59", "leak_provider_60", "192.0.2.77", "192.0.2.78", "not public", "revoked display", `href="/login"`, `href="/static/`, "/public"}
 	files := 0
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

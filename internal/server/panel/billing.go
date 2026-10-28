@@ -15,6 +15,7 @@ import (
 )
 
 type billingRow struct {
+	DisplayName                                                                                          string
 	Name, Provider, Expiry, ExpiryShort, Due, DueTone, Cost, Auto, Used, Quota, Period, Prediction, Tone string
 	Days, Pct, Bar                                                                                       int
 	HasBill, HasExpiry                                                                                   bool
@@ -23,16 +24,16 @@ type billingRow struct {
 	Daily                                                                                                []store.Daily
 }
 type billingEditor struct {
-	Name, Current, Calibrate string
-	Form                     url.Values
+	Name, DisplayName, Current, Calibrate string
+	Form                                  url.Values
 }
 type billingStat struct {
 	Label, Sub string
 	Count      int
 }
 type scheduleRow struct {
-	Time                    int64
-	Date, Node, Text, State string
+	Time                                 int64
+	Date, Node, Text, State, DisplayName string
 }
 type billingPage struct {
 	Today     string
@@ -75,7 +76,7 @@ func (h *Handler) billingData() (billingPage, error) {
 		if err != nil {
 			return out, err
 		}
-		r := billingRow{Name: n.Name, Provider: b.Provider, Expiry: b.Expiry, HasBill: has, Used: store.Bytes(store.Counted(t, b.Direction)), Bill: b, Traffic: t, Daily: days, Cost: "未设置", Auto: "手动续费", DueTone: "muted", Tone: "normal"}
+		r := billingRow{Name: n.Name, DisplayName: n.DisplayName, Provider: b.Provider, Expiry: b.Expiry, HasBill: has, Used: store.Bytes(store.Counted(t, b.Direction)), Bill: b, Traffic: t, Daily: days, Cost: "未设置", Auto: "手动续费", DueTone: "muted", Tone: "normal"}
 		if has {
 			out.HasBills = true
 			r.Cost = cycleLabels[b.Cycle]
@@ -111,7 +112,7 @@ func (h *Handler) billingData() (billingPage, error) {
 					if out.Stats[0].Sub != "" {
 						out.Stats[0].Sub += " · "
 					}
-					out.Stats[0].Sub += fmt.Sprintf("%s 还剩 %d 天", n.Name, r.Days)
+					out.Stats[0].Sub += fmt.Sprintf("%s 还剩 %d 天", n.Label(), r.Days)
 				}
 			}
 			if r.Days >= 0 && r.Days <= 30 {
@@ -136,7 +137,7 @@ func (h *Handler) billingData() (billingPage, error) {
 					if out.Stats[1].Sub != "" {
 						out.Stats[1].Sub += " · "
 					}
-					out.Stats[1].Sub += fmt.Sprintf("%s %d%%", n.Name, r.Pct)
+					out.Stats[1].Sub += fmt.Sprintf("%s %d%%", n.Label(), r.Pct)
 				}
 			}
 		}
@@ -244,11 +245,21 @@ func (h *Handler) billingData() (billingPage, error) {
 	sort.SliceStable(out.Schedule, func(i, j int) bool { return out.Schedule[i].Time < out.Schedule[j].Time })
 	for i := range out.Schedule {
 		r := &out.Schedule[i]
+		for _, n := range nodes {
+			if n.Name == r.Node {
+				r.DisplayName = n.DisplayName
+				break
+			}
+		}
 		r.Date = time.Unix(r.Time, 0).In(h.Store.Location).Format("01-02 15:04")
 		if r.Time >= now.Unix() && r.Time < now.AddDate(0, 0, 7).Unix() && r.State == "待提醒" {
 			out.Stats[3].Count++
 			if out.Stats[3].Sub == "" {
-				out.Stats[3].Sub = "下一条：" + r.Date[:5] + " " + r.Node
+				label := r.Node
+				if r.DisplayName != "" {
+					label = r.DisplayName
+				}
+				out.Stats[3].Sub = "下一条：" + r.Date[:5] + " " + label
 			}
 		}
 	}
@@ -367,7 +378,7 @@ func (h *Handler) billing(w http.ResponseWriter, r *http.Request, sess session) 
 		if status == 400 {
 			form = r.PostForm
 		}
-		data.Billing.Editor = &billingEditor{Name: name, Current: strconv.FormatFloat(float64(store.Counted(row.Traffic, row.Bill.Direction))/1e9, 'f', 3, 64), Form: form}
+		data.Billing.Editor = &billingEditor{Name: name, DisplayName: row.DisplayName, Current: strconv.FormatFloat(float64(store.Counted(row.Traffic, row.Bill.Direction))/1e9, 'f', 3, 64), Form: form}
 		if status == 400 {
 			data.Billing.Editor.Calibrate = r.PostForm.Get("calibrate")
 		}

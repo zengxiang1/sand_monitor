@@ -45,6 +45,7 @@ type page struct {
 	Refresh                                                                 bool
 	Page, User, CSRF, Error, NodeLink                                       string
 	Nodes                                                                   []nodeView
+	SwitchNodes                                                             []nodeView
 	Node                                                                    nodeView
 	Total, Online, Offline, Alerting, More                                  int
 	Events, Banners                                                         []store.Event
@@ -299,9 +300,9 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 	h.render(w, r, "overview", data, 200)
 }
 func (h *Handler) events(banner bool) ([]store.Event, error) {
-	query := `SELECT id,ts,node,kind,detail,notified FROM events ORDER BY id DESC LIMIT 20`
+	query := `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,n.display_name,e.suppressed FROM events e JOIN nodes n ON n.name=e.node ORDER BY e.id DESC LIMIT 20`
 	if banner {
-		query = `SELECT id,ts,node,kind,detail,notified FROM events WHERE kind='login_new_ip' AND acked_at=0 ORDER BY id DESC LIMIT 5`
+		query = `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,n.display_name,e.suppressed FROM events e JOIN nodes n ON n.name=e.node WHERE e.kind='login_new_ip' AND e.acked_at=0 ORDER BY e.id DESC LIMIT 5`
 	}
 	rows, err := h.Store.DB.Query(query)
 	if err != nil {
@@ -311,7 +312,7 @@ func (h *Handler) events(banner bool) ([]store.Event, error) {
 	var out []store.Event
 	for rows.Next() {
 		var event store.Event
-		if err = rows.Scan(&event.ID, &event.Time, &event.Node, &event.Kind, &event.Detail, &event.Notified); err != nil {
+		if err = rows.Scan(&event.ID, &event.Time, &event.Node, &event.Kind, &event.Detail, &event.Notified, &event.DisplayName, &event.Suppressed); err != nil {
 			return nil, err
 		}
 		out = append(out, event)
@@ -370,6 +371,25 @@ func (h *Handler) node(w http.ResponseWriter, r *http.Request, sess session) {
 	if err != nil {
 		h.serverError(w, err)
 		return
+	}
+	if n.RevokedAt == 0 && r.URL.Query().Get("fragment") != "1" {
+		h.cookie(w, "wanglou_last_node", n.Name, 604800)
+	}
+	nodes, err := h.Store.Nodes()
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	for _, node := range nodes {
+		if node.RevokedAt != 0 {
+			continue
+		}
+		view, err := h.view(node)
+		if err != nil {
+			h.serverError(w, err)
+			return
+		}
+		data.SwitchNodes = append(data.SwitchNodes, view)
 	}
 	data.NodeLink = "/nodes/" + n.Name
 	data.Range = r.URL.Query().Get("range")

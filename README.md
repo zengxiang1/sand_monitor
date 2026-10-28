@@ -19,6 +19,7 @@ interval = "5s"
 memory_threshold = 90
 disk_threshold = 90
 resource_duration = "5m"
+notify_cooldown = "30m"
 CONFIG
 
 bin/wanglou-server migrate --config .cache/demo/server.toml
@@ -102,6 +103,7 @@ interval = "5s"
 memory_threshold = 90
 disk_threshold = 90
 resource_duration = "5m"
+notify_cooldown = "30m"
 retention_days = 90
 # Optional notifications (omit to retain events without sending):
 # webhook_url = "https://hooks.example.com/wanglou"
@@ -440,12 +442,15 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 历史图提供 1 小时、24 小时、7 天、30 天和 90 天范围，在 SQL 中分桶，最多 360 点；页面每 5 秒刷新，
 编辑表单时暂停刷新，禁用 JavaScript 仍可使用全部操作。
 
-启动时数据库自动原地升级至 schema v5；升级前可备份数据库及 WAL。
+启动时数据库自动原地升级至 schema v7；升级前可备份数据库及 WAL。
 新增会话保留至空闲 12 小时或绝对 7 天，注册码保留 1 天，审计记录保留 90 天。
 `make check-panel-assets` 检查嵌入资源的 CSP 约束，并已并入 `make check`。
 
+总览中点击整行可查看节点，详情页可切换所有未吊销节点；导航会记住最近查看的节点。在详情页“位置与配置”旁可设置最多 32 字的显示名，留空恢复身份名。面板和告警使用显示名，公开页仍独立使用公开页配置里的“公开显示名”。身份名用于签名校验，不能修改，换身份名需要重新接入。
 
 ## 通知
+
+`notify_cooldown`（环境变量 `WANGLOU_NOTIFY_COOLDOWN`）默认为 `30m`，设为 `0` 关闭。冷却只影响推送，事件照常记录并标注“已合并，未推送”；静音的事件不参与计数。同一节点的上下线、同一来源 IP 的登录、同类资源告警分别合并，下个冷却期的首条通知附上合并次数。被压掉的失联对应的恢复也不推送，每个上下线冷却期只发一次“频繁掉线”提示。状态保存在数据库，重启后仍有效；二进制变化、续费、流量和对端检查不受冷却影响。
 
 Telegram 有两种配置方式：在面板“通知”（`/notify`）填写 bot token 和 chat id，保存后立即生效；或者在服务器配置文件中设置 `telegram_token`、`telegram_chat_id`（环境变量 `WANGLOU_TELEGRAM_TOKEN`、`WANGLOU_TELEGRAM_CHAT_ID`）。配置文件/环境变量优先：设置了 token 时，面板只读，并完全忽略数据库里的 Telegram 设置。Webhook 仍只通过配置文件或 `WANGLOU_WEBHOOK_URL` 设置。总览的渠道名单和续费页的“发送到”会随保存、停用立即更新；新配置不会补发已处理的历史事件。
 

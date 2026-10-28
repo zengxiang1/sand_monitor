@@ -128,7 +128,7 @@ func run(args []string) error {
 	if e != nil {
 		return e
 	}
-	dispatcher := &alert.Dispatcher{Store: s, Scope: c.AlertScope, Notifiers: channels.Notifiers}
+	dispatcher := &alert.Dispatcher{Cooldown: c.NotifyCooldown, Store: s, Scope: c.AlertScope, Notifiers: channels.Notifiers}
 	peerCheck := &peer.Loop{URL: c.PeerURL, Notifiers: channels.Notifiers}
 	var wg sync.WaitGroup
 	worker := func(fn func()) { wg.Add(1); go func() { defer wg.Done(); fn() }() }

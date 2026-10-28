@@ -123,7 +123,7 @@ func TestPublicHomeKeepsRouteAuthentication(t *testing.T) {
 func TestPublicHomeWhitelistExportAndPreview(t *testing.T) {
 	f := setup(t)
 	f.report(t, "node", sampleReport(), 204)
-	if _, err := f.s.DB.Exec(`UPDATE nodes SET last_ip='192.0.2.78',note='private_note_71',fingerprint='private_fingerprint_72';INSERT INTO logins VALUES('node',?,'private_user_73','192.0.2.77',1)`, f.now.Unix()); err != nil {
+	if _, err := f.s.DB.Exec(`UPDATE nodes SET display_name='private_display_name_75',last_ip='192.0.2.78',note='private_note_71',fingerprint='private_fingerprint_72';INSERT INTO logins VALUES('node',?,'private_user_73','192.0.2.77',1)`, f.now.Unix()); err != nil {
 		t.Fatal(err)
 	}
 	b := store.DefaultBilling("node")
@@ -153,7 +153,7 @@ func TestPublicHomeWhitelistExportAndPreview(t *testing.T) {
 	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), want) {
 		t.Fatal(w.Code, w.Body)
 	}
-	for _, marker := range []string{"192.0.2.78", "192.0.2.77", "private_note_71", "private_fingerprint_72", "private_user_73", "private_provider_74", "65432.10", "2037-12-23", "未发布草稿标题", "未发布草稿名称", `<script`, `<style`, `style=`, `href="/nodes/`, `src=`} {
+	for _, marker := range []string{"private_display_name_75", "192.0.2.78", "192.0.2.77", "private_note_71", "private_fingerprint_72", "private_user_73", "private_provider_74", "65432.10", "2037-12-23", "未发布草稿标题", "未发布草稿名称", `<script`, `<style`, `style=`, `href="/nodes/`, `src=`} {
 		if strings.Contains(w.Body.String(), marker) {
 			t.Error("leaked or unsafe HTML", marker)
 		}

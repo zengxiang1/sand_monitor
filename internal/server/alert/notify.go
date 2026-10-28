@@ -56,7 +56,10 @@ func (t Telegram) ID() string {
 	return fmt.Sprintf("telegram:%x", sha256.Sum256([]byte(t.BaseURL+"\n"+t.Token+"\n"+t.ChatID)))
 }
 func (t Telegram) Notify(ctx context.Context, e store.Event) error {
-	text := fmt.Sprintf("%s · %s：%s", e.Node, eventtext.Kind(e.Kind), e.Detail)
+	text := fmt.Sprintf("%s · %s：%s", e.Label(), eventtext.Kind(e.Kind), e.Detail)
+	if e.Kind == "flapping" {
+		text = e.Label() + " " + e.Detail
+	}
 	if e.Kind == "peer" {
 		text = e.Detail
 	}
@@ -114,6 +117,8 @@ type Dispatcher struct {
 	mu        sync.Mutex
 	Store     *store.Store
 	Scope     string
+	Cooldown  time.Duration
+	Now       func() time.Time
 	Notifiers func() []Notifier
 	retries   map[deliveryKey]deliveryRetry
 	active    map[int64]bool
@@ -166,15 +171,10 @@ func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	if d.Notifiers != nil {
 		notifiers = d.Notifiers()
 	}
-	if len(notifiers) == 0 || d.Scope == "security" && !slices.Contains([]string{"offline", "recovered", "login_new_ip", "bin_changed"}, event.Kind) {
-		return d.Store.MarkNotified(event.ID)
-	}
-	node, err := d.Store.Node(event.Node)
-	if err != nil {
+	var err error
+	event, err = d.prepare(event, notifiers)
+	if err != nil || event.Notified {
 		return err
-	}
-	if event.Kind != "billing" && event.Kind != "traffic" && (node.MutedUntil > event.Time || node.MutedUntil > time.Now().Unix()) {
-		return d.Store.MarkNotified(event.ID)
 	}
 	pending, err := d.pendingNotifiers(event, notifiers)
 	if err != nil {
@@ -247,6 +247,14 @@ func (d *Dispatcher) Run(ctx context.Context) {
 				notifiers := []Notifier{}
 				if d.Notifiers != nil {
 					notifiers = d.Notifiers()
+				}
+				event, err = d.prepare(event, notifiers)
+				if err != nil {
+					log.Printf("notification queue: %v", err)
+					continue
+				}
+				if event.Notified {
+					continue
 				}
 				pending, err := d.pendingNotifiers(event, notifiers)
 				if err != nil {

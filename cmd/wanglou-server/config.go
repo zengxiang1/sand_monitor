@@ -27,6 +27,7 @@ type config struct {
 	PanelListen, PublicIngestURL                                                 string
 	PanelCookieSecure                                                            bool
 	TrustedProxies                                                               []netip.Prefix
+	NotifyCooldown                                                               time.Duration
 	Alerts                                                                       alert.Config
 }
 
@@ -34,7 +35,7 @@ type config struct {
 // errors. Environment variables override the file, including empty strings.
 func loadConfig(path string) (config, error) { return loadConfigEnv(path, os.Environ()) }
 func loadConfigEnv(path string, environment []string) (config, error) {
-	c := config{TelegramAPIBase: "https://api.telegram.org", InstanceName: "望楼", AlertScope: "all", RetentionDays: 90, Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
+	c := config{NotifyCooldown: 30 * time.Minute, TelegramAPIBase: "https://api.telegram.org", InstanceName: "望楼", AlertScope: "all", RetentionDays: 90, Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
 	apply := func(key, value string, env bool) (err error) {
 		stringValue := func() (string, error) {
 			if env {
@@ -105,13 +106,15 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 				}
 				c.TrustedProxies = append(c.TrustedProxies, prefix.Masked())
 			}
-		case "interval", "resource_duration":
+		case "interval", "resource_duration", "notify_cooldown":
 			var s string
 			s, err = stringValue()
 			if err == nil {
 				var d time.Duration
 				d, err = time.ParseDuration(s)
-				if key == "interval" {
+				if key == "notify_cooldown" {
+					c.NotifyCooldown = d
+				} else if key == "interval" {
 					c.Alerts.Interval = d
 				} else {
 					c.Alerts.Sustain = d
@@ -148,7 +151,7 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 	if utf8.RuneCountInString(c.InstanceName) > 16 || (c.AlertScope != "all" && c.AlertScope != "security") {
 		return c, fmt.Errorf("invalid instance_name or alert_scope")
 	}
-	if c.RetentionDays < 7 || c.RetentionDays > 3650 || c.Database == "" || c.Listen == "" || c.Alerts.Interval < time.Second || c.Alerts.Sustain < time.Second || !(c.Alerts.MemoryThreshold > 0 && c.Alerts.MemoryThreshold <= 100) || !(c.Alerts.DiskThreshold > 0 && c.Alerts.DiskThreshold <= 100) {
+	if c.NotifyCooldown < 0 || c.RetentionDays < 7 || c.RetentionDays > 3650 || c.Database == "" || c.Listen == "" || c.Alerts.Interval < time.Second || c.Alerts.Sustain < time.Second || !(c.Alerts.MemoryThreshold > 0 && c.Alerts.MemoryThreshold <= 100) || !(c.Alerts.DiskThreshold > 0 && c.Alerts.DiskThreshold <= 100) {
 		return c, fmt.Errorf("invalid configuration")
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") || (c.TelegramToken == "") != (c.TelegramChatID == "") {

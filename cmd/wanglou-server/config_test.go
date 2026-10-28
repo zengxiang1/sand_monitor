@@ -285,3 +285,30 @@ func TestTelegramAPIBaseConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestNotifyCooldownConfiguration(t *testing.T) {
+	c, err := loadConfigEnv("", nil)
+	if err != nil || c.NotifyCooldown != 30*time.Minute {
+		t.Fatal(c.NotifyCooldown, err)
+	}
+	path := filepath.Join(t.TempDir(), "server.toml")
+	if err = os.WriteFile(path, []byte("notify_cooldown = \"15m\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = loadConfigEnv(path, nil)
+	if err != nil || c.NotifyCooldown != 15*time.Minute {
+		t.Fatal(c.NotifyCooldown, err)
+	}
+	for _, value := range []string{"0", "1m", "500ms"} {
+		c, err = loadConfigEnv(path, []string{"WANGLOU_NOTIFY_COOLDOWN=" + value})
+		want, _ := time.ParseDuration(value)
+		if err != nil || c.NotifyCooldown != want {
+			t.Fatal(value, c.NotifyCooldown, err)
+		}
+	}
+	for _, value := range []string{"-1m", "invalid"} {
+		if _, err = loadConfigEnv(path, []string{"WANGLOU_NOTIFY_COOLDOWN=" + value}); err == nil {
+			t.Fatal(value)
+		}
+	}
+}

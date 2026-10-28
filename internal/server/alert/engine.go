@@ -77,7 +77,7 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 			return err
 		}
 		if known == 0 {
-			if err = store.AddEvent(tx, now, n.Name, "login_new_ip", l.User+" 从 "+l.From+" 登录（首次出现的 IP）"); err != nil {
+			if _, err = tx.Exec(`INSERT INTO events(ts,node,kind,detail,cooldown_key) VALUES(?,?,'login_new_ip',?,?)`, now.Unix(), n.Name, l.User+" 从 "+l.From+" 登录（首次出现的 IP）", "login:"+l.From); err != nil {
 				return err
 			}
 		}
@@ -137,7 +137,7 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 			active = false
 		}
 		if high && !active {
-			if err = store.AddEvent(tx, now, n.Name, "resource", eventtext.Resource(resource.name, resource.threshold, e.Config.Sustain)); err != nil {
+			if _, err = tx.Exec(`INSERT INTO events(ts,node,kind,detail,cooldown_key) VALUES(?,?,'resource',?,?)`, now.Unix(), n.Name, eventtext.Resource(resource.name, resource.threshold, e.Config.Sustain), "resource:"+resource.name); err != nil {
 				return err
 			}
 			active = true

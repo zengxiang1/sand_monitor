@@ -11,6 +11,8 @@ import (
 	"wanglou/internal/proto"
 )
 
+const downgradeV7 = `DROP TABLE notify_cooldowns; DROP INDEX events_cooldown; ALTER TABLE nodes DROP COLUMN display_name; ALTER TABLE events DROP COLUMN cooldown_key; ALTER TABLE events DROP COLUMN cooldown_decided; ALTER TABLE events DROP COLUMN suppressed; ALTER TABLE events DROP COLUMN notification_detail; `
+
 func TestPhaseOneMigration(t *testing.T) {
 	for _, version := range []int{1, 2} {
 		t.Run(string(rune('0'+version)), func(t *testing.T) {
@@ -45,11 +47,11 @@ func TestPhaseOneMigration(t *testing.T) {
 			}
 			defer s.Close()
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 6 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 7 {
 				t.Fatal(got, err)
 			}
 			n, err := s.Node("old")
-			if err != nil || n.LastSeq != ^uint64(0) || n.Fingerprint != proto.Fingerprint(pub) || n.Note != "" || n.OS != "" || n.Arch != "" || n.MutedUntil != 0 {
+			if err != nil || n.LastSeq != ^uint64(0) || n.Fingerprint != proto.Fingerprint(pub) || n.DisplayName != "" || n.Note != "" || n.OS != "" || n.Arch != "" || n.MutedUntil != 0 {
 				t.Fatal(n, err)
 			}
 			var ack int64
@@ -126,7 +128,7 @@ func TestRevokedKeysMigration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = s.DB.Exec(`UPDATE nodes SET revoked_at=100 WHERE name='node'; DROP TABLE revoked_keys;ALTER TABLE billing DROP COLUMN anchor_day;PRAGMA user_version=5`); err != nil {
+		if _, err = s.DB.Exec(downgradeV7 + `UPDATE nodes SET revoked_at=100 WHERE name='node'; DROP TABLE revoked_keys;ALTER TABLE billing DROP COLUMN anchor_day;PRAGMA user_version=5`); err != nil {
 			t.Fatal(err)
 		}
 		if version == 4 {
@@ -144,7 +146,7 @@ func TestRevokedKeysMigration(t *testing.T) {
 				t.Fatal(version, fingerprint, name, at, err)
 			}
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 6 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 7 {
 				t.Fatal(version, got, err)
 			}
 		}
@@ -172,7 +174,7 @@ func TestV5AnchorDayMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DB.Exec(`ALTER TABLE billing DROP COLUMN anchor_day; PRAGMA user_version=5`); err != nil {
+	if _, err := s.DB.Exec(downgradeV7 + `ALTER TABLE billing DROP COLUMN anchor_day; PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -215,5 +217,44 @@ func TestV5AnchorDayMigration(t *testing.T) {
 	got, err = s.Billing("node")
 	if err != nil || got.AnchorDay != 1 {
 		t.Fatal(got, err)
+	}
+}
+
+func TestV6DisplayNameAndCooldownMigration(t *testing.T) {
+	s := billingStore(t)
+	if _, err := s.DB.Exec(downgradeV7 + `PRAGMA user_version=6; INSERT INTO events(ts,node,kind,detail) VALUES(100,'node','offline','retained')`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.Migrate(); err != nil {
+			t.Fatal(err)
+		}
+		var version int
+		if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 7 {
+			t.Fatal(version, err)
+		}
+		n, err := s.Node("node")
+		if err != nil || n.DisplayName != "" {
+			t.Fatal(n, err)
+		}
+		var key, detail string
+		var decided, suppressed bool
+		if err := s.DB.QueryRow(`SELECT cooldown_key,cooldown_decided,suppressed,detail FROM events`).Scan(&key, &decided, &suppressed, &detail); err != nil || key != "" || decided || suppressed || detail != "retained" {
+			t.Fatal(key, decided, suppressed, detail, err)
+		}
+	}
+	if _, err := s.DB.Exec(`UPDATE nodes SET display_name='东京一号';INSERT INTO notify_cooldowns VALUES('node','connectivity',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.Node("node")
+	if err != nil || n.DisplayName != "东京一号" {
+		t.Fatal(n, err)
+	}
+	var count int
+	if err := s.DB.QueryRow(`SELECT count(*) FROM notify_cooldowns WHERE warned=1`).Scan(&count); err != nil || count != 1 {
+		t.Fatal(count, err)
 	}
 }

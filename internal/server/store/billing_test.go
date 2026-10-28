@@ -235,7 +235,7 @@ func TestPhaseThreeMigrationAndRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`DROP TABLE metrics_1m;DROP TABLE metrics_1h;DROP TABLE billing;DROP TABLE traffic;DROP TABLE daily;DROP TABLE reminders;DROP TABLE kv;ALTER TABLE events DROP COLUMN targets;PRAGMA user_version=3;INSERT INTO audit_log(ts,user,ip,action,detail) VALUES(1,'admin','','retained','v3');`); err != nil {
+	if _, err = db.Exec(downgradeV7 + `DROP TABLE metrics_1m;DROP TABLE metrics_1h;DROP TABLE billing;DROP TABLE traffic;DROP TABLE daily;DROP TABLE reminders;DROP TABLE kv;ALTER TABLE events DROP COLUMN targets;PRAGMA user_version=3;INSERT INTO audit_log(ts,user,ip,action,detail) VALUES(1,'admin','','retained','v3');`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -245,7 +245,7 @@ func TestPhaseThreeMigrationAndRetention(t *testing.T) {
 	}
 	defer up.Close()
 	var version int
-	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 6 {
+	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 7 {
 		t.Fatal(version, err)
 	}
 	var detail string
