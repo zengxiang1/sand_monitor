@@ -39,6 +39,7 @@ type page struct {
 	Reenable                                                                bool
 	Billing                                                                 billingPage
 	Public                                                                  publicPage
+	Notify                                                                  notifyPage
 	PublicDir, Heartbeat, Peer, BackupIngestURL, BackupCommand              string
 	HeartbeatConfigured                                                     bool
 	Refresh                                                                 bool
@@ -148,7 +149,7 @@ func (h *Handler) base(sess session) page {
 	if h.Config.PeerStatus != nil {
 		peer = h.Config.PeerStatus(h.Now())
 	}
-	return page{Peer: peer, BackupIngestURL: h.Config.BackupIngestURL, PublicDir: h.Config.PublicDir, Heartbeat: heartbeat, HeartbeatConfigured: h.Config.HeartbeatURL != "", User: sess.User, CSRF: sess.CSRF, Channels: h.Config.Channels, Interval: fmt.Sprintf("%.0f 秒", h.Config.Interval.Seconds())}
+	return page{Peer: peer, BackupIngestURL: h.Config.BackupIngestURL, PublicDir: h.Config.PublicDir, Heartbeat: heartbeat, HeartbeatConfigured: h.Config.HeartbeatURL != "", User: sess.User, CSRF: sess.CSRF, Channels: h.Config.Channels.Names(), Interval: fmt.Sprintf("%.0f 秒", h.Config.Interval.Seconds())}
 }
 func (h *Handler) latest(name string) (metric, error) {
 	var m metric

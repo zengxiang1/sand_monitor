@@ -107,6 +107,7 @@ retention_days = 90
 # webhook_url = "https://hooks.example.com/wanglou"
 # telegram_token = "bot-token"
 # telegram_chat_id = "chat-id"
+# telegram_api_base = "https://api.telegram.org"
 ```
 
 The server configuration file is optional. Every server key can be overridden
@@ -442,6 +443,21 @@ wanglou-agent enroll K7QF-29XM --config agent.toml
 启动时数据库自动原地升级至 schema v5；升级前可备份数据库及 WAL。
 新增会话保留至空闲 12 小时或绝对 7 天，注册码保留 1 天，审计记录保留 90 天。
 `make check-panel-assets` 检查嵌入资源的 CSP 约束，并已并入 `make check`。
+
+
+## 通知
+
+Telegram 有两种配置方式：在面板“通知”（`/notify`）填写 bot token 和 chat id，保存后立即生效；或者在服务器配置文件中设置 `telegram_token`、`telegram_chat_id`（环境变量 `WANGLOU_TELEGRAM_TOKEN`、`WANGLOU_TELEGRAM_CHAT_ID`）。配置文件/环境变量优先：设置了 token 时，面板只读，并完全忽略数据库里的 Telegram 设置。Webhook 仍只通过配置文件或 `WANGLOU_WEBHOOK_URL` 设置。总览的渠道名单和续费页的“发送到”会随保存、停用立即更新；新配置不会补发已处理的历史事件。
+
+1. 在 Telegram 打开 @BotFather，发送 `/newbot`，按提示创建机器人并取得 token。
+2. 先给机器人发一条消息，再访问 `https://api.telegram.org/bot<token>/getUpdates`，在返回的 `message.chat.id` 中找到 chat id。群组的 id 通常为负数；公开频道也可用 `@频道名`。
+3. 在通知页填写并保存，检查“已开始向这里发送告警通知”确认消息。token 留空表示沿用当前值，首次配置必填。测试按钮只向已保存的渠道发送，每 10 秒最多一次。
+
+保存和停用需要重新输入管理员 TOTP；同一个验证码不能重复使用（包括登录时使用的验证码），请等下一个 30 秒窗口。15 分钟内失败 5 次，会拒绝该用户在这一窗口内的后续修改。修改前先向旧 Telegram 通知修改人、来源 IP 和新 chat id，停用前也会通知旧渠道；旧渠道发送失败仍继续操作，并在页面和审计中标明。旧渠道通知和新渠道确认各限时 5 秒，操作记录写入审计。页面只显示 token 后 4 位。
+
+面板配置以明文保存在数据库 `kv` 表的 `notify.telegram` 中，**数据库备份包含 token**，请保护数据库和备份的访问权限。备用接收端没有面板，仍在自己的 `.env` 中设置通知渠道。
+
+无法直连 Telegram 时，可在服务器配置中设置 `telegram_api_base`（环境变量 `WANGLOU_TELEGRAM_API_BASE`）为自建反向代理地址，默认 `https://api.telegram.org`；两种配置方式共用此地址。通知页只读显示地址，不允许从面板修改。必须为 HTTPS，不能带用户信息、查询参数或片段，末尾 `/` 自动去除；只有本地 `--insecure-http` 模式允许 HTTP，可用于假接收器验收。
 
 
 ## 续费与流量

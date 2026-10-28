@@ -20,7 +20,7 @@ const defaultConfig = "/etc/wanglou/server.toml"
 type config struct {
 	InstanceName, AlertScope, PeerURL, BackupIngestURL                           string
 	Database, Listen, TLSCert, TLSKey, WebhookURL, TelegramToken, TelegramChatID string
-	Timezone, PublicDir, PublicURL, HeartbeatURL                                 string
+	TelegramAPIBase, Timezone, PublicDir, PublicURL, HeartbeatURL                string
 	RetentionDays                                                                int
 	Location                                                                     *time.Location
 	ListenPlain                                                                  bool
@@ -34,7 +34,7 @@ type config struct {
 // errors. Environment variables override the file, including empty strings.
 func loadConfig(path string) (config, error) { return loadConfigEnv(path, os.Environ()) }
 func loadConfigEnv(path string, environment []string) (config, error) {
-	c := config{InstanceName: "望楼", AlertScope: "all", RetentionDays: 90, Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
+	c := config{TelegramAPIBase: "https://api.telegram.org", InstanceName: "望楼", AlertScope: "all", RetentionDays: 90, Timezone: "Local", Database: "/var/lib/wanglou/wanglou.db", Listen: ":8443", PanelCookieSecure: true, Alerts: alert.DefaultConfig()}
 	apply := func(key, value string, env bool) (err error) {
 		stringValue := func() (string, error) {
 			if env {
@@ -77,6 +77,8 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 			c.TLSKey, err = stringValue()
 		case "webhook_url":
 			c.WebhookURL, err = stringValue()
+		case "telegram_api_base":
+			c.TelegramAPIBase, err = stringValue()
 		case "telegram_token":
 			c.TelegramToken, err = stringValue()
 		case "telegram_chat_id":
@@ -155,6 +157,10 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 	if c.ListenPlain && len(c.TrustedProxies) == 0 {
 		return c, fmt.Errorf("listen_plain requires trusted_proxies CIDRs")
 	}
+	c.TelegramAPIBase = strings.TrimRight(c.TelegramAPIBase, "/")
+	if c.TelegramAPIBase == "" {
+		return c, fmt.Errorf("telegram_api_base requires HTTPS")
+	}
 	var err error
 	c.Location, err = time.LoadLocation(c.Timezone)
 	if err != nil {
@@ -178,7 +184,7 @@ func (c config) validateTransport(insecure bool) error {
 			return fmt.Errorf("%s requires HTTPS", key)
 		}
 	}
-	for key, value := range map[string]string{"public_ingest_url": c.PublicIngestURL, "peer_url": c.PeerURL, "backup_ingest_url": c.BackupIngestURL} {
+	for key, value := range map[string]string{"telegram_api_base": c.TelegramAPIBase, "public_ingest_url": c.PublicIngestURL, "peer_url": c.PeerURL, "backup_ingest_url": c.BackupIngestURL} {
 		if value == "" {
 			continue
 		}

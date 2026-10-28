@@ -239,3 +239,49 @@ func TestDualReceiverConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestTelegramAPIBaseConfiguration(t *testing.T) {
+	c, err := loadConfigEnv("", nil)
+	if err != nil || c.TelegramAPIBase != "https://api.telegram.org" {
+		t.Fatal("default Telegram API base", err)
+	}
+	path := filepath.Join(t.TempDir(), "telegram.toml")
+	if err := os.WriteFile(path, []byte("telegram_api_base='https://proxy.example.invalid/telegram///'\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = loadConfigEnv(path, nil)
+	if err != nil || c.TelegramAPIBase != "https://proxy.example.invalid/telegram" {
+		t.Fatal("file API base normalization", err)
+	}
+	c, err = loadConfigEnv(path, []string{"WANGLOU_TELEGRAM_API_BASE=https://env.example.invalid/"})
+	if err != nil || c.TelegramAPIBase != "https://env.example.invalid" {
+		t.Fatal("environment API base precedence", err)
+	}
+	for _, tc := range []struct {
+		base         string
+		insecure, ok bool
+	}{
+		{"https://api.telegram.org", false, true},
+		{"https://proxy.example.invalid/prefix/", false, true},
+		{"http://127.0.0.1:9000/", false, false},
+		{"http://127.0.0.1:9000/", true, true},
+		{"https://user:pass@example.invalid", false, false},
+		{"https://user@example.invalid", true, false},
+		{"https://example.invalid?q=1", false, false},
+		{"https://example.invalid?", true, false},
+		{"https://example.invalid#part", true, false},
+		{"https://example.invalid#", false, false},
+		{"relative", true, false},
+		{"ftp://example.invalid", true, false},
+		{"https:///path", false, false},
+		{"", true, false},
+	} {
+		c, err := loadConfigEnv("", []string{"WANGLOU_TELEGRAM_API_BASE=" + tc.base, "WANGLOU_LISTEN=127.0.0.1:8080", "WANGLOU_TLS_CERT=cert", "WANGLOU_TLS_KEY=key"})
+		if err == nil {
+			err = c.validateTransport(tc.insecure)
+		}
+		if (err == nil) != tc.ok {
+			t.Fatal("API base validation", tc, err)
+		}
+	}
+}

@@ -124,14 +124,12 @@ func run(args []string) error {
 	engine := alert.New(s, c.Alerts)
 	heart := &heartbeat.Loop{URL: c.HeartbeatURL}
 	exporter := &status.Exporter{Store: s, Dir: c.PublicDir}
-	dispatcher := &alert.Dispatcher{Store: s, Scope: c.AlertScope}
-	if c.WebhookURL != "" {
-		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Webhook{URL: c.WebhookURL, Instance: c.InstanceName})
+	channels, e := alert.NewChannels(s, alert.Telegram{Token: c.TelegramToken, ChatID: c.TelegramChatID, BaseURL: c.TelegramAPIBase, Instance: c.InstanceName, Location: c.Location}, alert.Webhook{URL: c.WebhookURL, Instance: c.InstanceName})
+	if e != nil {
+		return e
 	}
-	if c.TelegramToken != "" {
-		dispatcher.Notifiers = append(dispatcher.Notifiers, alert.Telegram{Token: c.TelegramToken, ChatID: c.TelegramChatID, Instance: c.InstanceName, Location: c.Location})
-	}
-	peerCheck := &peer.Loop{URL: c.PeerURL, Notifiers: dispatcher.Notifiers}
+	dispatcher := &alert.Dispatcher{Store: s, Scope: c.AlertScope, Notifiers: channels.Notifiers}
+	peerCheck := &peer.Loop{URL: c.PeerURL, Notifiers: channels.Notifiers}
 	var wg sync.WaitGroup
 	worker := func(fn func()) { wg.Add(1); go func() { defer wg.Done(); fn() }() }
 	worker(func() { s.RunCleanup(ctx) })
@@ -217,13 +215,6 @@ func run(args []string) error {
 	}
 	addServer(c.Listen, handler)
 	if c.PanelListen != "" {
-		channels := []string{}
-		if c.TelegramToken != "" {
-			channels = append(channels, "Telegram")
-		}
-		if c.WebhookURL != "" {
-			channels = append(channels, "Webhook")
-		}
 		addServer(c.PanelListen, panel.New(s, handler, panel.Config{PeerStatus: peerCheck.Status, BackupIngestURL: c.BackupIngestURL, MemoryThreshold: c.Alerts.MemoryThreshold, DiskThreshold: c.Alerts.DiskThreshold, Sustain: c.Alerts.Sustain, PublicDir: c.PublicDir, PublicURL: c.PublicURL, HeartbeatURL: c.HeartbeatURL, HeartbeatStatus: heart.Status, Exporter: exporter, CookieSecure: c.PanelCookieSecure, PublicIngestURL: c.PublicIngestURL, TrustedProxies: c.TrustedProxies, Interval: c.Alerts.Interval, Channels: channels}))
 	}
 	worker(func() {

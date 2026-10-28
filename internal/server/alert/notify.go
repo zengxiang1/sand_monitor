@@ -56,17 +56,9 @@ func (t Telegram) ID() string {
 	return fmt.Sprintf("telegram:%x", sha256.Sum256([]byte(t.BaseURL+"\n"+t.Token+"\n"+t.ChatID)))
 }
 func (t Telegram) Notify(ctx context.Context, e store.Event) error {
-	base := t.BaseURL
-	if base == "" {
-		base = "https://api.telegram.org"
-	}
-	instance := t.Instance
-	if instance == "" {
-		instance = "望楼"
-	}
-	text := fmt.Sprintf("%s · %s · %s：%s", instance, e.Node, eventtext.Kind(e.Kind), e.Detail)
+	text := fmt.Sprintf("%s · %s：%s", e.Node, eventtext.Kind(e.Kind), e.Detail)
 	if e.Kind == "peer" {
-		text = instance + " · " + e.Detail
+		text = e.Detail
 	}
 	// Delayed deliveries may arrive out of order, so they carry the event time.
 	if e.Time > 0 && time.Now().Unix()-e.Time > 60 {
@@ -75,6 +67,18 @@ func (t Telegram) Notify(ctx context.Context, e store.Event) error {
 			loc = time.Local
 		}
 		text += "（发生于 " + time.Unix(e.Time, 0).In(loc).Format("01-02 15:04") + "）"
+	}
+	return t.SendText(ctx, text)
+}
+func (t Telegram) SendText(ctx context.Context, text string) error {
+	instance := t.Instance
+	if instance == "" {
+		instance = "望楼"
+	}
+	text = instance + " · " + text
+	base := t.BaseURL
+	if base == "" {
+		base = "https://api.telegram.org"
 	}
 	return post(ctx, t.Client, base+"/bot"+url.PathEscape(t.Token)+"/sendMessage", map[string]string{"chat_id": t.ChatID, "text": text})
 }
@@ -85,7 +89,7 @@ func post(ctx context.Context, client *http.Client, target string, payload any) 
 	}
 	req, e := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(b))
 	if e != nil {
-		return e
+		return fmt.Errorf("notification request failed")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if client == nil {
@@ -96,7 +100,9 @@ func post(ctx context.Context, client *http.Client, target string, payload any) 
 		return fmt.Errorf("notification transport failed")
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body, 4096)); err != nil {
+		return fmt.Errorf("notification response failed")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("notification status %d", resp.StatusCode)
 	}
@@ -108,7 +114,7 @@ type Dispatcher struct {
 	mu        sync.Mutex
 	Store     *store.Store
 	Scope     string
-	Notifiers []Notifier
+	Notifiers func() []Notifier
 	retries   map[deliveryKey]deliveryRetry
 	active    map[int64]bool
 }
@@ -121,9 +127,9 @@ type deliveryRetry struct {
 	delay time.Duration
 }
 
-func (d *Dispatcher) pendingNotifiers(event store.Event) ([]Notifier, error) {
+func (d *Dispatcher) pendingNotifiers(event store.Event, notifiers []Notifier) ([]Notifier, error) {
 	pending := []Notifier{}
-	for _, n := range d.Notifiers {
+	for _, n := range notifiers {
 		if event.Targets != "" && !slices.Contains(strings.Split(event.Targets, ","), n.Kind()) {
 			continue
 		}
@@ -156,7 +162,11 @@ func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	if event.Notified {
 		return nil
 	}
-	if len(d.Notifiers) == 0 || d.Scope == "security" && !slices.Contains([]string{"offline", "recovered", "login_new_ip", "bin_changed"}, event.Kind) {
+	notifiers := []Notifier{}
+	if d.Notifiers != nil {
+		notifiers = d.Notifiers()
+	}
+	if len(notifiers) == 0 || d.Scope == "security" && !slices.Contains([]string{"offline", "recovered", "login_new_ip", "bin_changed"}, event.Kind) {
 		return d.Store.MarkNotified(event.ID)
 	}
 	node, err := d.Store.Node(event.Node)
@@ -166,7 +176,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	if event.Kind != "billing" && event.Kind != "traffic" && (node.MutedUntil > event.Time || node.MutedUntil > time.Now().Unix()) {
 		return d.Store.MarkNotified(event.ID)
 	}
-	pending, err := d.pendingNotifiers(event)
+	pending, err := d.pendingNotifiers(event, notifiers)
 	if err != nil {
 		return err
 	}
@@ -211,7 +221,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	}
 	if err = d.Store.MarkNotified(event.ID); err == nil {
 		d.mu.Lock()
-		for _, n := range d.Notifiers {
+		for _, n := range notifiers {
 			delete(d.retries, deliveryKey{event.ID, n.ID()})
 		}
 		d.mu.Unlock()
@@ -234,7 +244,11 @@ func (d *Dispatcher) Run(ctx context.Context) {
 			}
 			for _, event := range events {
 				after = event.ID
-				pending, err := d.pendingNotifiers(event)
+				notifiers := []Notifier{}
+				if d.Notifiers != nil {
+					notifiers = d.Notifiers()
+				}
+				pending, err := d.pendingNotifiers(event, notifiers)
 				if err != nil {
 					log.Printf("notification queue: %v", err)
 					continue

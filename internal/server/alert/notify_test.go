@@ -79,13 +79,13 @@ func TestSingleAttemptAndMarkAfterRetry(t *testing.T) {
 		t.Fatal(events, err)
 	}
 	var calls int
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error {
+	d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(notifyFunc(func(context.Context, store.Event) error {
 		calls++
 		if calls < 4 {
 			return errors.New("temporary")
 		}
 		return nil
-	})}}
+	}))}
 	for attempt := 1; attempt <= 4; attempt++ {
 		if attempt > 1 {
 			d.mu.Lock()
@@ -110,7 +110,7 @@ func TestFailedNotificationRemainsPendingAndCancellation(t *testing.T) {
 	}
 	events, _ := e.Store.Pending(1)
 	calls := 0
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") })}}
+	d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") }))}
 	if err := d.Deliver(context.Background(), events[0]); err == nil || calls != 1 {
 		t.Fatal(calls, err)
 	}
@@ -133,7 +133,7 @@ func TestNotificationsDoNotBlockReports(t *testing.T) {
 	started := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(ctx context.Context, _ store.Event) error {
+	d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(notifyFunc(func(ctx context.Context, _ store.Event) error {
 		select {
 		case <-started:
 		default:
@@ -141,7 +141,7 @@ func TestNotificationsDoNotBlockReports(t *testing.T) {
 		}
 		<-ctx.Done()
 		return ctx.Err()
-	})}}
+	}))}
 	done := make(chan struct{})
 	go func() { defer close(done); d.Run(ctx) }()
 	select {
@@ -193,7 +193,7 @@ func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 		}
 		return nil
 	}}
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{a, b}}
+	d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(a, b)}
 	if err = d.Deliver(context.Background(), events[0]); err == nil || first != 1 || second != 1 {
 		t.Fatal(first, second, err)
 	}
@@ -213,7 +213,7 @@ func TestPerNotifierDeliveryPersistsAcrossRetryAndRestart(t *testing.T) {
 	}
 	defer reopened.Close()
 	e.Store = reopened
-	d = Dispatcher{Store: e.Store, Notifiers: []Notifier{b, a}}
+	d = Dispatcher{Store: e.Store, Notifiers: staticNotifiers(b, a)}
 	fail = false
 	if err = d.Deliver(context.Background(), events[0]); err != nil || first != 1 || second != 2 {
 		t.Fatal(first, second, err)
@@ -252,7 +252,7 @@ func TestMutedEventsAreRecordedAndProcessed(t *testing.T) {
 		t.Fatal(events, err)
 	}
 	calls := 0
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error { calls++; return nil })}}
+	d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(notifyFunc(func(context.Context, store.Event) error { calls++; return nil }))}
 	if err = d.Deliver(context.Background(), events[0]); err != nil || calls != 0 {
 		t.Fatal(calls, err)
 	}
@@ -292,7 +292,7 @@ func TestBillingTrafficTargetsAndMute(t *testing.T) {
 	}
 	calls := map[string]int{}
 	var mu sync.Mutex
-	d := Dispatcher{Store: e.Store, Notifiers: []Notifier{channelNotifier{"telegram", func(context.Context, store.Event) error { mu.Lock(); calls["telegram"]++; mu.Unlock(); return nil }}, channelNotifier{"webhook", func(context.Context, store.Event) error { mu.Lock(); calls["webhook"]++; mu.Unlock(); return nil }}}}
+	d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(channelNotifier{"telegram", func(context.Context, store.Event) error { mu.Lock(); calls["telegram"]++; mu.Unlock(); return nil }}, channelNotifier{"webhook", func(context.Context, store.Event) error { mu.Lock(); calls["webhook"]++; mu.Unlock(); return nil }})}
 	for _, kind := range []string{"billing", "traffic"} {
 		result, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail,targets) VALUES(?,'node',?,'','telegram')`, now.Unix(), kind)
 		if err != nil {
@@ -331,10 +331,10 @@ func TestDispatcherBackoffDoesNotStarveNewEvents(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		e, _ := setupEngine(t)
 		var failed, healthy atomic.Int32
-		d := Dispatcher{Store: e.Store, Notifiers: []Notifier{
+		d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(
 			namedNotifier{"broken", func(context.Context, store.Event) error { failed.Add(1); return errors.New("always fails") }},
 			namedNotifier{"healthy", func(context.Context, store.Event) error { healthy.Add(1); return nil }},
-		}}
+		)}
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() { defer close(done); d.Run(ctx) }()
@@ -376,10 +376,10 @@ func TestDispatcherSlowChannelDoesNotDelayOthers(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		e, _ := setupEngine(t)
 		var healthy atomic.Int32
-		d := Dispatcher{Store: e.Store, Notifiers: []Notifier{
+		d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(
 			namedNotifier{"slow", func(ctx context.Context, _ store.Event) error { <-ctx.Done(); return ctx.Err() }},
 			namedNotifier{"healthy", func(context.Context, store.Event) error { healthy.Add(1); return nil }},
-		}}
+		)}
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() { defer close(done); d.Run(ctx) }()
@@ -409,7 +409,7 @@ func TestDispatcherBackoffCap(t *testing.T) {
 			t.Fatal(events, err)
 		}
 		calls := 0
-		d := Dispatcher{Store: e.Store, Notifiers: []Notifier{notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") })}}
+		d := Dispatcher{Store: e.Store, Notifiers: staticNotifiers(notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") }))}
 		for i, delay := range []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 10 * time.Minute, 10 * time.Minute} {
 			if err = d.Deliver(context.Background(), events[0]); err == nil || calls != i+1 {
 				t.Fatal(calls, err)
@@ -444,7 +444,7 @@ func TestDispatcherExpiresAndProcessesWithoutChannels(t *testing.T) {
 		var calls atomic.Int32
 		d := Dispatcher{Store: e.Store}
 		if !noChannels {
-			d.Notifiers = []Notifier{notifyFunc(func(context.Context, store.Event) error { calls.Add(1); return nil })}
+			d.Notifiers = staticNotifiers(notifyFunc(func(context.Context, store.Event) error { calls.Add(1); return nil }))
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
@@ -473,4 +473,8 @@ func TestDispatcherExpiresAndProcessesWithoutChannels(t *testing.T) {
 			t.Fatal(detail, calls.Load(), err)
 		}
 	}
+}
+
+func staticNotifiers(notifiers ...Notifier) func() []Notifier {
+	return func() []Notifier { return notifiers }
 }

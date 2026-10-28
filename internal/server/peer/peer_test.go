@@ -47,7 +47,7 @@ func TestPeerTransitionsAndRedirects(t *testing.T) {
 			_, _ = io.WriteString(w, "ignored")
 		}))
 		good, bad := &notifier{}, &notifier{fail: true}
-		l := &Loop{URL: server.URL + "/base/", Transport: client.Transport, Notifiers: []alert.Notifier{bad, good}}
+		l := &Loop{URL: server.URL + "/base/", Transport: client.Transport, Notifiers: staticNotifiers(bad, good)}
 		now := time.Unix(1700000000, 0)
 		if got := (&Loop{}).Status(now); got != "未配置" {
 			t.Fatal(got)
@@ -106,7 +106,7 @@ func TestPeerTimeoutAndBoundedDiscard(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		now := time.Now()
 		n := &notifier{}
-		l := &Loop{URL: "https://peer.example.invalid", Notifiers: []alert.Notifier{n}, Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		l := &Loop{URL: "https://peer.example.invalid", Notifiers: staticNotifiers(n), Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
 			<-r.Context().Done()
 			return nil, r.Context().Err()
 		})}
@@ -151,7 +151,7 @@ func TestPeerNotificationRetryDelays(t *testing.T) {
 					}
 					return nil
 				})
-				l := &Loop{URL: "https://peer.example.invalid", failures: 3, Notifiers: []alert.Notifier{n}, Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+				l := &Loop{URL: "https://peer.example.invalid", failures: 3, Notifiers: staticNotifiers(n), Transport: transportFunc(func(*http.Request) (*http.Response, error) {
 					return &http.Response{StatusCode: 500, Body: http.NoBody}, nil
 				})}
 				started := time.Now()
@@ -177,7 +177,7 @@ func TestPeerNotificationRetryCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		calls := 0
 		n := notifyFunc(func(context.Context, store.Event) error { calls++; return errors.New("failed") })
-		l := &Loop{URL: "https://peer.example.invalid", failures: 3, Notifiers: []alert.Notifier{n, n}, Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+		l := &Loop{URL: "https://peer.example.invalid", failures: 3, Notifiers: staticNotifiers(n, n), Transport: transportFunc(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: 500, Body: http.NoBody}, nil
 		})}
 		ctx, cancel := context.WithCancel(context.Background())
@@ -196,4 +196,34 @@ func TestPeerNotificationRetryCancellation(t *testing.T) {
 			t.Fatal("cancellation did not interrupt retry wait", calls, time.Since(started))
 		}
 	})
+}
+
+func staticNotifiers(notifiers ...alert.Notifier) func() []alert.Notifier {
+	return func() []alert.Notifier { return notifiers }
+}
+
+func TestPeerReadsRuntimeChannels(t *testing.T) {
+	current := []alert.Notifier{}
+	n := &notifier{}
+	status := 503
+	l := &Loop{URL: "https://peer.example.invalid", Notifiers: func() []alert.Notifier { return current }, Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	for range 4 {
+		l.Check(context.Background(), time.Now())
+	}
+	current = []alert.Notifier{n}
+	status = 204
+	l.Check(context.Background(), time.Now())
+	if n.calls != 1 || !strings.Contains(n.events[0].Detail, "已恢复") {
+		t.Fatal("peer did not read new channels")
+	}
+	current = nil
+	status = 503
+	for range 4 {
+		l.Check(context.Background(), time.Now())
+	}
+	if n.calls != 1 {
+		t.Fatal("peer used disabled channels")
+	}
 }

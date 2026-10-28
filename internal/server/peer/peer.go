@@ -17,7 +17,7 @@ import (
 type Loop struct {
 	URL           string
 	Transport     http.RoundTripper
-	Notifiers     []alert.Notifier
+	Notifiers     func() []alert.Notifier
 	mu            sync.Mutex
 	failures      int
 	down, success time.Time
@@ -59,7 +59,11 @@ func (l *Loop) Check(ctx context.Context, now time.Time) {
 	if message == "" {
 		return
 	}
-	for _, notifier := range l.Notifiers {
+	notifiers := []alert.Notifier{}
+	if l.Notifiers != nil {
+		notifiers = l.Notifiers()
+	}
+	for _, notifier := range notifiers {
 		var err error
 		for attempt := 0; attempt < 4; attempt++ {
 			if ctx.Err() != nil {

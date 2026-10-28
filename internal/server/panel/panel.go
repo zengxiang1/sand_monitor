@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 	"wanglou/internal/proto"
+	"wanglou/internal/server/alert"
 	"wanglou/internal/server/eventtext"
 	"wanglou/internal/server/ingest"
 	status "wanglou/internal/server/public"
@@ -45,7 +46,7 @@ type Config struct {
 	PublicIngestURL                    string
 	TrustedProxies                     []netip.Prefix
 	Interval                           time.Duration
-	Channels                           []string
+	Channels                           *alert.Channels
 	PublicDir, PublicURL, HeartbeatURL string
 	HeartbeatStatus                    func(time.Time) string
 	Exporter                           *status.Exporter
@@ -57,6 +58,7 @@ type route struct {
 }
 
 var routes = []route{
+	{"GET /notify", true, false, "notify"}, {"POST /notify/telegram", false, false, "notify-set"}, {"POST /notify/telegram/disable", false, false, "notify-disable"}, {"POST /notify/telegram/test", false, false, "notify-test"},
 	{"GET /billing", true, false, "billing"}, {"POST /billing/{name}", false, false, "billing"}, {"POST /billing/{name}/renewed", false, false, "billing"},
 	{"GET /public", true, false, "public"}, {"POST /public", false, false, "public"}, {"POST /public/token", false, false, "public-token"}, {"POST /public/announcements", false, false, "announcement"}, {"POST /public/announcements/{id}/delete", false, false, "announcement-delete"}, {"GET /public/preview", true, false, "public-preview"},
 	{"GET /login", true, true, "login"}, {"POST /login", false, true, "login"}, {"GET /static/", false, true, "static"},
@@ -73,21 +75,24 @@ type failures struct {
 }
 type session struct{ User, CSRF, Hash string }
 type Handler struct {
-	Store         *store.Store
-	Ingest        *ingest.Handler
-	Config        Config
-	Now           func() time.Time
-	Logf          func(string, ...any)
-	mux           *http.ServeMux
-	templates     *template.Template
-	signingKey    string
-	dummy         string
-	mu            sync.Mutex
-	ips, users    map[string]failures
-	publicMu      sync.Mutex
-	publicRaw     string
-	publicHTML    []byte
-	publicExpires time.Time
+	Store          *store.Store
+	Ingest         *ingest.Handler
+	Config         Config
+	Now            func() time.Time
+	Logf           func(string, ...any)
+	mux            *http.ServeMux
+	templates      *template.Template
+	signingKey     string
+	dummy          string
+	mu             sync.Mutex
+	ips, users     map[string]failures
+	notifyMu       sync.Mutex
+	notifyFailures map[string]failures
+	notifyTestAt   time.Time
+	publicMu       sync.Mutex
+	publicRaw      string
+	publicHTML     []byte
+	publicExpires  time.Time
 }
 
 func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
@@ -107,7 +112,7 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 	if err != nil {
 		panic(err)
 	}
-	h := &Handler{Store: s, Ingest: ing, Config: c, Now: time.Now, Logf: log.Printf, dummy: dummy, signingKey: randomToken(32), ips: map[string]failures{}, users: map[string]failures{}, mux: http.NewServeMux()}
+	h := &Handler{Store: s, Ingest: ing, Config: c, Now: time.Now, Logf: log.Printf, dummy: dummy, signingKey: randomToken(32), notifyFailures: map[string]failures{}, ips: map[string]failures{}, users: map[string]failures{}, mux: http.NewServeMux()}
 	h.templates = template.Must(template.New("panel").Funcs(template.FuncMap{"time": formatTime, "has": func(f url.Values, k, v string) bool { return slices.Contains(f[k], v) }, "seq": func(n int) []int {
 		a := make([]int, n)
 		for i := range a {
@@ -197,6 +202,8 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 				h.login(w, r)
 			case "logout":
 				h.logout(w, r, sess)
+			case "notify", "notify-set", "notify-disable", "notify-test":
+				h.notify(w, r, sess, entry.action)
 			case "billing":
 				h.billing(w, r, sess)
 			case "public", "public-token", "announcement", "announcement-delete", "public-preview":

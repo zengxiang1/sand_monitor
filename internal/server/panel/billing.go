@@ -334,7 +334,7 @@ func (h *Handler) billing(w http.ResponseWriter, r *http.Request, sess session) 
 			}
 			if err == nil {
 				channels := []string{}
-				for _, c := range h.Config.Channels {
+				for _, c := range data.Channels {
 					channels = append(channels, strings.ToLower(c))
 				}
 				err = b.Validate(channels)

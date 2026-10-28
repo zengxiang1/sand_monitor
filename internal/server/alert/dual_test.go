@@ -12,7 +12,7 @@ import (
 func TestSecurityScope(t *testing.T) {
 	e, now := setupEngine(t)
 	calls := []string{}
-	d := Dispatcher{Store: e.Store, Scope: "security", Notifiers: []Notifier{notifyFunc(func(_ context.Context, event store.Event) error { calls = append(calls, event.Kind); return nil })}}
+	d := Dispatcher{Store: e.Store, Scope: "security", Notifiers: staticNotifiers(notifyFunc(func(_ context.Context, event store.Event) error { calls = append(calls, event.Kind); return nil }))}
 	for _, kind := range []string{"offline", "recovered", "login_new_ip", "bin_changed", "resource", "billing", "traffic", "future-kind"} {
 		result, err := e.Store.DB.Exec(`INSERT INTO events(ts,node,kind,detail) VALUES(?,'node',?,'test')`, now.Unix(), kind)
 		if err != nil {

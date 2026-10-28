@@ -59,7 +59,11 @@ func setup(t *testing.T) *fixture {
 	ing := ingest.New(s, alert.New(s, alert.DefaultConfig()))
 	ing.Now = func() time.Time { return f.now }
 	ing.Logf = func(string, ...any) {}
-	f.h = New(s, ing, Config{CookieSecure: true, PublicIngestURL: "https://monitor.example.com", Channels: []string{"Telegram", "Webhook"}})
+	channels, err := alert.NewChannels(s, alert.Telegram{Token: "token", ChatID: "123"}, alert.Webhook{URL: "https://hook.example.invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.h = New(s, ing, Config{CookieSecure: true, PublicIngestURL: "https://monitor.example.com", Channels: channels})
 	f.h.Now = func() time.Time { return f.now }
 	f.h.Logf = func(string, ...any) {}
 	f.cookie = &http.Cookie{Name: f.h.cookieName(), Value: randomToken(32)}
