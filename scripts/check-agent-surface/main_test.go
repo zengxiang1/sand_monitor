@@ -24,3 +24,16 @@ func TestRejectSurface(t *testing.T) {
 		t.Fatal("empty closure")
 	}
 }
+
+func TestAllowHTTP2ClientConfig(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "client.go")
+	if err := os.WriteFile(p, []byte(`package client; import "net/http"; var _ = &http.HTTP2Config{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := inspect(p); err != nil {
+		t.Fatal(err)
+	}
+	if !forbidden("net/http", "Server") {
+		t.Fatal("http.Server must remain forbidden")
+	}
+}

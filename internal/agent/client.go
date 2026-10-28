@@ -19,29 +19,53 @@ import (
 )
 
 type Client struct {
-	config Config
-	key    ed25519.PrivateKey
-	http   *http.Client
-	mu     sync.Mutex
-	seq    uint64
-	Now    func() time.Time
+	config        Config
+	key           ed25519.PrivateKey
+	http          map[string]*http.Client
+	ownTransports bool
+	mu            sync.Mutex
+	seq           uint64
+	Now           func() time.Time
 }
 
 // An optional transport supports embedding and socket-free integration tests.
 // Redirect policy, response handling and timeout remain fixed by this client.
 func NewClient(c Config, key ed25519.PrivateKey, transport ...http.RoundTripper) (*Client, error) {
+	return newClient(c, key, nil, transport...)
+}
+
+// configure is a per-client test hook for TLS trust and shorter network timers.
+func newClient(c Config, key ed25519.PrivateKey, configure func(*http.Transport), transport ...http.RoundTripper) (*Client, error) {
 	if e := c.Validate(); e != nil {
 		return nil, e
 	}
 	if len(key) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("invalid key")
 	}
-	client := &Client{config: c, key: key, Now: time.Now, http: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	if len(transport) > 1 {
 		return nil, fmt.Errorf("at most one transport is allowed")
 	}
-	if len(transport) == 1 {
-		client.http.Transport = transport[0]
+	base, standardTransport := http.DefaultTransport.(*http.Transport)
+	client := &Client{config: c, key: key, Now: time.Now, http: make(map[string]*http.Client), ownTransports: len(transport) == 0 && standardTransport}
+	for _, target := range []string{"primary", "backup"} {
+		if target == "backup" && c.BackupServer == "" {
+			continue
+		}
+		h := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		if len(transport) == 1 {
+			h.Transport = transport[0]
+		} else if standardTransport {
+			t := base.Clone()
+			t.HTTP2 = &http.HTTP2Config{SendPingTimeout: 15 * time.Second, PingTimeout: 5 * time.Second, WriteByteTimeout: 10 * time.Second}
+			if configure != nil {
+				configure(t)
+			}
+			h.Transport = t
+		} else {
+			// Preserve embedding/tests that replace the global RoundTripper.
+			h.Transport = http.DefaultTransport
+		}
+		client.http[target] = h
 	}
 	b, e := os.ReadFile(c.StateFile)
 	if e == nil {
@@ -54,6 +78,31 @@ func NewClient(c Config, key ed25519.PrivateKey, transport ...http.RoundTripper)
 	}
 	return client, nil
 }
+
+// do shares connection recovery between reports and enrollment.
+func (c *Client) do(target string, req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	h := c.http[target]
+	c.mu.Unlock()
+	resp, err := h.Do(req)
+	if err != nil {
+		h.CloseIdleConnections()
+		if c.ownTransports {
+			c.mu.Lock()
+			if c.http[target] == h {
+				// HTTP/2 cancellation can return before the stream finishes
+				// cleanup, so CloseIdleConnections may still see it as busy.
+				// A fresh pool guarantees the next request cannot reuse it.
+				next := *h
+				next.Transport = h.Transport.(*http.Transport).Clone()
+				c.http[target] = &next
+			}
+			c.mu.Unlock()
+		}
+	}
+	return resp, err
+}
+
 func (c *Client) nextSeq() (uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -140,7 +189,7 @@ func (c *Client) SendTo(ctx context.Context, target string, r proto.Report) erro
 	req.Header.Set(proto.SeqHeader, strconv.FormatUint(seq, 10))
 	req.Header.Set(proto.TsHeader, strconv.FormatInt(ts, 10))
 	req.Header.Set(proto.SigHeader, proto.Sign(c.key, c.config.Name, seq, ts, body))
-	resp, e := c.http.Do(req)
+	resp, e := c.do(target, req)
 	if e != nil {
 		return e
 	}
@@ -173,7 +222,7 @@ func (c *Client) EnrollTo(ctx context.Context, target, code string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := c.do(target, req)
 	if err != nil {
 		return fmt.Errorf("注册失败")
 	}

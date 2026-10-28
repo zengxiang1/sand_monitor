@@ -91,15 +91,36 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 	results := make(chan result, len(targets))
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	sample := func(now time.Time) {
+	timer := time.NewTimer(0)
+	timer.Stop()
+	defer timer.Stop()
+	sample := func(retry bool) {
+		if ctx.Err() != nil {
+			return
+		}
+		now := time.Now()
+		var pending []*sender
+		for _, target := range targets {
+			if !target.busy && (target.failures > 0) == retry && !now.Before(target.ready) {
+				pending = append(pending, target)
+			}
+		}
+		if len(pending) == 0 {
+			return
+		}
 		r, err := collector.Sample()
 		if err != nil {
 			log.Printf("sample failed: %v", err)
+			for _, target := range pending {
+				if retry {
+					target.ready = time.Now().Add(backoff(target.failures))
+				}
+			}
 			return
 		}
-		for _, target := range targets {
-			if target.busy || now.Before(target.ready) {
-				continue
+		for _, target := range pending {
+			if ctx.Err() != nil {
+				return
 			}
 			target.busy = true
 			wg.Add(1)
@@ -121,8 +142,20 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 	if ctx.Err() != nil {
 		return nil
 	}
-	sample(time.Now())
+	sample(false)
 	for {
+		var ready time.Time
+		for _, target := range targets {
+			if !target.busy && target.failures > 0 && (ready.IsZero() || target.ready.Before(ready)) {
+				ready = target.ready
+			}
+		}
+		timer.Stop()
+		var retry <-chan time.Time
+		if !ready.IsZero() {
+			timer.Reset(time.Until(ready))
+			retry = timer.C
+		}
 		select {
 		case <-ctx.Done():
 			return nil
@@ -144,10 +177,10 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 				log.Printf("report to %s failed: %s", target.name, message)
 				target.lastError, target.logged = message, done.at
 			}
-		case now := <-ticks:
-			if ctx.Err() == nil {
-				sample(now)
-			}
+		case <-retry:
+			sample(true)
+		case <-ticks:
+			sample(false)
 		}
 	}
 }

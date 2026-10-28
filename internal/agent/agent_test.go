@@ -108,7 +108,7 @@ func TestClientPersistenceAndBoundedDiscard(t *testing.T) {
 		}
 		client.Now = func() time.Time { return now.Add(-time.Duration(i) * time.Hour) }
 		response := &endless{}
-		client.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		client.http["primary"].Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			body, _ := io.ReadAll(req.Body)
 			seq, _ := strconv.ParseUint(req.Header.Get(proto.SeqHeader), 10, 64)
 			ts, _ := strconv.ParseInt(req.Header.Get(proto.TsHeader), 10, 64)
@@ -131,7 +131,7 @@ func TestClientRedirectAndFailure(t *testing.T) {
 	key, _ := GenerateKey(c.Key, false)
 	client, _ := NewClient(c, key)
 	var calls atomic.Int32
-	client.http.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+	client.http["primary"].Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		calls.Add(1)
 		return &http.Response{StatusCode: 302, Header: http.Header{"Location": []string{"https://elsewhere"}}, Body: io.NopCloser(strings.NewReader("remote instructions are ignored"))}, nil
 	})

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -57,13 +58,13 @@ func TestBackupConfiguration(t *testing.T) {
 
 type sampleCounter struct {
 	*collect.Collector
-	count int
+	count atomic.Int32
 }
 
 func (s *sampleCounter) Sample() (proto.Report, error) {
-	s.count++
+	n := s.count.Add(1)
 	r := report()
-	r.Up, r.CPU = float64(s.count), float64(s.count)
+	r.Up, r.CPU = float64(n), float64(n)
 	return r, nil
 }
 
@@ -156,8 +157,16 @@ func TestDualLoopIsolation(t *testing.T) {
 					synctest.Wait()
 				}
 				mu.Lock()
-				if len(received[healthy]) != 16 || sampler.count != 16 {
-					t.Errorf("cadence changed: healthy=%d samples=%d", len(received[healthy]), sampler.count)
+				wantSamples := 16
+				if strings.Contains(mode, "-") {
+					failed := "backup"
+					if healthy == "backup" {
+						failed = "primary"
+					}
+					wantSamples += len(received[failed]) - 1
+				}
+				if len(received[healthy]) != 16 || int(sampler.count.Load()) != wantSamples {
+					t.Errorf("cadence changed: healthy=%d samples=%d", len(received[healthy]), sampler.count.Load())
 				}
 				if mode == "both" {
 					for i, r := range received["primary"] {
@@ -402,9 +411,10 @@ func TestTargetFailureLogLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		status := 401
+		var status atomic.Int32
+		status.Store(401)
 		client, err := NewClient(c, key, roundTripFunc(func(*http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: status, Body: http.NoBody}, nil
+			return &http.Response{StatusCode: int(status.Load()), Body: http.NoBody}, nil
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -422,8 +432,14 @@ func TestTargetFailureLogLimit(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			_ = runLoop(ctx, c, client, &sampleCounter{Collector: collector}, ticks, func(int) time.Duration { return 0 })
+			_ = runLoop(ctx, c, client, &sampleCounter{Collector: collector}, ticks, func(failures int) time.Duration {
+				if failures == 5 {
+					return 10 * time.Minute
+				}
+				return time.Second
+			})
 		}()
+		defer func() { cancel(); <-done }()
 		synctest.Wait()
 		advance := func(delay time.Duration) { time.Sleep(delay); ticks <- time.Now(); synctest.Wait() }
 		for range 3 {
@@ -432,7 +448,7 @@ func TestTargetFailureLogLimit(t *testing.T) {
 		if strings.Count(output.String(), "failed:") != 2 || !strings.Contains(output.String(), "report to primary failed:") || !strings.Contains(output.String(), "report to backup failed:") {
 			t.Fatal(output.String())
 		}
-		status = 500
+		status.Store(500)
 		advance(time.Second)
 		if strings.Count(output.String(), "failed:") != 4 {
 			t.Fatal(output.String())
@@ -441,7 +457,7 @@ func TestTargetFailureLogLimit(t *testing.T) {
 		if strings.Count(output.String(), "failed:") != 6 {
 			t.Fatal(output.String())
 		}
-		status = 204
+		status.Store(204)
 		advance(time.Second)
 		for _, target := range []string{"primary", "backup"} {
 			if strings.Count(output.String(), "report to "+target+" recovered after 6 failures") != 1 {
@@ -452,7 +468,7 @@ func TestTargetFailureLogLimit(t *testing.T) {
 		if strings.Count(output.String(), "recovered after") != 2 {
 			t.Fatal(output.String())
 		}
-		status = 500
+		status.Store(500)
 		advance(time.Second)
 		if strings.Count(output.String(), "failed:") != 8 {
 			t.Fatal(output.String())

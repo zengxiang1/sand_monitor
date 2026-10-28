@@ -28,7 +28,7 @@ func forbidden(path, name string) bool {
 	case "net/http":
 		// Allow client API use; everything else must be reviewed explicitly.
 		switch name {
-		case "Client", "Request", "Response", "RoundTripper", "Transport", "DefaultTransport", "DefaultClient", "Header", "Cookie", "CookieJar", "NewRequest", "NewRequestWithContext", "NoBody", "ErrUseLastResponse", "MethodPost", "MethodGet", "MethodHead", "MethodPut", "MethodDelete", "MethodPatch", "MethodOptions", "StatusNoContent", "ProxyFromEnvironment", "ProxyURL", "Get", "Head", "Post", "PostForm":
+		case "Client", "Request", "Response", "RoundTripper", "Transport", "HTTP2Config", "DefaultTransport", "DefaultClient", "Header", "Cookie", "CookieJar", "NewRequest", "NewRequestWithContext", "NoBody", "ErrUseLastResponse", "MethodPost", "MethodGet", "MethodHead", "MethodPut", "MethodDelete", "MethodPatch", "MethodOptions", "StatusNoContent", "ProxyFromEnvironment", "ProxyURL", "Get", "Head", "Post", "PostForm":
 			return false
 		default:
 			return true
