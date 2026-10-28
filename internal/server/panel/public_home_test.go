@@ -61,7 +61,7 @@ func TestPublicHomeConditionsAndLoginLink(t *testing.T) {
 				t.Fatal("HEAD", head.Code)
 			}
 			w = f.request("GET", "/login", nil, false)
-			if w.Code != 200 || strings.Contains(w.Body.String(), `href="/">查看状态页</a>`) != tc.public {
+			if w.Code != 200 || strings.Contains(w.Body.String(), `href="/"><span aria-hidden="true">←</span> 查看状态页</a>`) != tc.public {
 				t.Fatal(w.Code, w.Body)
 			}
 			checkHeaders(t, w)
@@ -70,7 +70,7 @@ func TestPublicHomeConditionsAndLoginLink(t *testing.T) {
 	form, cookie := f.loginForm(t)
 	form.Set("password", "wrong")
 	w := f.submitLogin(form, cookie, "192.0.2.10", nil)
-	if w.Code != 401 || !strings.Contains(w.Body.String(), `href="/">查看状态页</a>`) {
+	if w.Code != 401 || !strings.Contains(w.Body.String(), `href="/"><span aria-hidden="true">←</span> 查看状态页</a>`) {
 		t.Fatal(w.Code, w.Body)
 	}
 }

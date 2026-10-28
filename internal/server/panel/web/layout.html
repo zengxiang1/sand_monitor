@@ -1,9 +1,40 @@
 {{define "layout"}}<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>望楼 · 只读面板</title><link rel="stylesheet" href="/static/panel.css"><script src="/static/panel.js" defer></script></head><body>
-<header><div class="header"><a class="brand" href="/">望楼</a><span class="muted mono">wanglou</span>{{if .User}}<nav aria-label="主导航"><a href="/" {{if eq .Page "overview"}}aria-current="page"{{end}}>总览</a><a href="{{if .NodeLink}}{{.NodeLink}}{{else}}/#servers{{end}}" {{if eq .Page "node"}}aria-current="page"{{end}}>节点详情</a><a href="/billing" {{if eq .Page "billing"}}aria-current="page"{{end}}>续费与流量</a><a href="/notify" {{if eq .Page "notify"}}aria-current="page"{{end}}>通知</a><a href="/public" {{if eq .Page "public"}}aria-current="page"{{end}}>公开页</a><a href="/enroll" {{if eq .Page "enroll"}}aria-current="page"{{end}}>接入节点</a></nav><div class="account"><span class="badge ok">♧ 只读面板 · 无下行通道</span><span class="muted">{{.User}} · 已通过 TOTP</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="small">登出</button></form></div>{{end}}</div></header>
-<main id="panel-content" {{if .Refresh}}data-refresh="true"{{end}}>{{template "content" .}}</main>
-<footer>这个面板只读取节点主动上报的数据，无法连接、登录或控制任何服务器。</footer></body></html>{{end}}
-{{define "login"}}<section class="card login"><h1>登录望楼</h1><p class="muted">使用管理员账号、口令与验证器验证码登录。</p>{{if .Error}}<p role="alert" class="notice danger">{{.Error}}</p>{{end}}<form method="post" action="/login" class="stack"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>用户名<input name="user" required maxlength="64" autocomplete="username"></label><label>口令<input type="password" name="password" required maxlength="4096" autocomplete="current-password"></label><label>6 位验证码<input name="totp" required pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label><button class="primary">登录</button></form>{{if .PublicHome}}<p><a href="/">查看状态页</a></p>{{end}}</section>{{end}}
+{{if ne .Page "login"}}<header><div class="header"><a class="brand" href="/">望楼</a><span class="muted mono">wanglou</span>{{if .User}}<nav aria-label="主导航"><a href="/" {{if eq .Page "overview"}}aria-current="page"{{end}}>总览</a><a href="{{if .NodeLink}}{{.NodeLink}}{{else}}/#servers{{end}}" {{if eq .Page "node"}}aria-current="page"{{end}}>节点详情</a><a href="/billing" {{if eq .Page "billing"}}aria-current="page"{{end}}>续费与流量</a><a href="/notify" {{if eq .Page "notify"}}aria-current="page"{{end}}>通知</a><a href="/public" {{if eq .Page "public"}}aria-current="page"{{end}}>公开页</a><a href="/enroll" {{if eq .Page "enroll"}}aria-current="page"{{end}}>接入节点</a></nav><div class="account"><span class="badge ok">♧ 只读面板 · 无下行通道</span><span class="muted">{{.User}} · 已通过 TOTP</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="small">登出</button></form></div>{{end}}</div></header>{{end}}
+<main id="panel-content" {{if eq .Page "login"}}class="login-page"{{end}} {{if .Refresh}}data-refresh="true"{{end}}>{{template "content" .}}</main>
+{{if ne .Page "login"}}<footer>这个面板只读取节点主动上报的数据，无法连接、登录或控制任何服务器。</footer>{{end}}</body></html>{{end}}
+{{define "login"}}
+<section class="login-brand" aria-label="望楼">
+  <div class="login-brand-name">
+    <div class="login-logo"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8DB4F2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h14 M7 9l-2-3h14l-2 3 M8 9v12 M16 9v12 M8 14h8 M6 21h12 M12 3v3"/></svg></div>
+    <div><strong>望楼</strong><span class="mono">wanglou</span></div>
+  </div>
+  <div class="login-brand-message">
+    <h2>只读监控，<br>单点失陷不波及全局</h2>
+    <ul class="login-features">
+      <li><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8DB4F2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-8 9-8 9s-8-4-8-9V7z M9 12l2 2 4-4"/></svg><span>只读面板，没有下行通道，不能连接或控制任何服务器</span></li>
+      <li><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8DB4F2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="4"/><path d="M11 11l10 10 M17 17l3-3 M14 14l3-3"/></svg><span>每个节点用自己的密钥签名上报，伪造的数据会被拒收</span></li>
+      <li><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8DB4F2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3 M12 14v3"/></svg><span>登录需要口令加验证器验证码</span></li>
+    </ul>
+  </div>
+  <div>{{if .PublicHome}}<a class="login-public-link" href="/"><span aria-hidden="true">←</span> 查看状态页</a>{{end}}</div>
+</section>
+<section class="login-form-area" aria-labelledby="login-heading">
+  <div class="login-form">
+    <h1 id="login-heading">登录面板</h1>
+    <p class="login-description">使用管理员账号、口令和验证器里的 6 位验证码。</p>
+    {{if .Error}}<p role="alert" class="login-error"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6 M12 17h.01"/></svg><span>{{.Error}}</span></p>{{end}}
+    <form method="post" action="/login" class="stack">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label for="login-user">用户名<input id="login-user" name="user" required maxlength="64" autocomplete="username"></label>
+      <label for="login-password">口令<input id="login-password" type="password" name="password" required maxlength="4096" autocomplete="current-password"></label>
+      <label for="login-totp">验证码<input id="login-totp" class="login-totp" name="totp" required pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" aria-describedby="login-totp-hint"></label>
+      <p id="login-totp-hint" class="login-totp-hint">打开验证器 App，输入当前显示的 6 位数字</p>
+      <button class="primary" type="submit">登录</button>
+    </form>
+  </div>
+</section>
+{{end}}
 
 {{define "content"}}<span hidden data-panel-refresh="{{.Refresh}}"></span>{{if eq .Page "login"}}{{template "login" .}}{{else if eq .Page "overview"}}{{template "overview" .}}{{else if eq .Page "node"}}{{template "node" .}}{{else if eq .Page "billing"}}{{template "billing" .}}{{else if eq .Page "notify"}}{{template "notify" .}}{{else if eq .Page "public"}}{{template "public" .}}{{else if eq .Page "enroll"}}{{template "enroll" .}}{{end}}{{end}}
 

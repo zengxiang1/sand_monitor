@@ -171,6 +171,62 @@ func TestRouteTableAuthAndHeaders(t *testing.T) {
 		}
 	}
 }
+func TestLoginPageLayoutAndFields(t *testing.T) {
+	f := setup(t)
+	w := f.request("GET", "/login", nil, false)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body)
+	}
+	body := w.Body.String()
+	for _, marker := range []string{`class="login-page"`, `class="login-brand"`, `class="login-form-area"`, "只读监控，<br>单点失陷不波及全局", "登录面板", `method="post" action="/login"`, `aria-describedby="login-totp-hint"`, `id="login-totp-hint"`} {
+		if !strings.Contains(body, marker) {
+			t.Error("login page missing", marker)
+		}
+	}
+	for _, marker := range []string{"<header", "<footer", `role="alert"`, "查看状态页", `style=`, `<script>`} {
+		if strings.Contains(body, marker) {
+			t.Error("unexpected login markup", marker)
+		}
+	}
+	for _, field := range []struct{ name, label, autocomplete string }{
+		{"user", "用户名", "username"},
+		{"password", "口令", "current-password"},
+		{"totp", "验证码", "one-time-code"},
+	} {
+		if !strings.Contains(body, `<label for="login-`+field.name+`">`+field.label) {
+			t.Error("missing associated label", field.name)
+		}
+		tag := regexp.MustCompile(`<input\b[^>]*\bname="` + field.name + `"[^>]*>`).FindString(body)
+		for _, attribute := range []string{`id="login-` + field.name + `"`, `autocomplete="` + field.autocomplete + `"`, "required"} {
+			if !strings.Contains(tag, attribute) {
+				t.Error("missing input attribute", field.name, attribute)
+			}
+		}
+		if field.name == "password" && !strings.Contains(tag, `type="password"`) {
+			t.Error("password input is not masked")
+		}
+		if field.name == "totp" {
+			for _, attribute := range []string{`inputmode="numeric"`, `pattern="[0-9]{6}"`, `maxlength="6"`, `placeholder="000000"`} {
+				if !strings.Contains(tag, attribute) {
+					t.Error("missing TOTP attribute", attribute)
+				}
+			}
+		}
+	}
+	if input(t, body, "csrf") != w.Result().Cookies()[0].Value {
+		t.Error("CSRF field does not match login cookie")
+	}
+	for _, tag := range regexp.MustCompile(`<svg\b[^>]*>`).FindAllString(body, -1) {
+		if !strings.Contains(tag, `aria-hidden="true"`) {
+			t.Error("decorative icon exposed to assistive technology", tag)
+		}
+	}
+	w = f.request("GET", "/", nil, true)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "<header>") || !strings.Contains(w.Body.String(), "<footer>") || strings.Contains(w.Body.String(), `class="login-page"`) {
+		t.Fatal("authenticated page lost panel layout", w.Code, w.Body)
+	}
+}
+
 func TestLoginFailuresLimitsRotationAndReplay(t *testing.T) {
 	f := setup(t)
 	form, cookie := f.loginForm(t)
@@ -184,7 +240,7 @@ func TestLoginFailuresLimitsRotationAndReplay(t *testing.T) {
 		if w.Code != 401 {
 			t.Fatal(w.Code, w.Body)
 		}
-		if !strings.Contains(w.Body.String(), loginError) {
+		if !strings.Contains(w.Body.String(), `<p role="alert" class="login-error"><svg aria-hidden="true"`) || !strings.Contains(w.Body.String(), "<span>"+loginError+"</span>") {
 			t.Fatal("generic error missing")
 		}
 		if body != "" && body != w.Body.String() {
@@ -238,7 +294,7 @@ func TestLoginFailuresLimitsRotationAndReplay(t *testing.T) {
 		if w.Code != want {
 			t.Fatal(i, w.Code)
 		}
-		if !strings.Contains(w.Body.String(), loginError) {
+		if !strings.Contains(w.Body.String(), `<p role="alert" class="login-error"><svg aria-hidden="true"`) || !strings.Contains(w.Body.String(), "<span>"+loginError+"</span>") {
 			t.Fatal("rate error differs")
 		}
 	}
