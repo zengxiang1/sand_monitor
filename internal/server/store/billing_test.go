@@ -66,6 +66,92 @@ func TestTrafficAccounting(t *testing.T) {
 		t.Fatal("accounting survived rollback")
 	}
 }
+func TestOnlineAccountingGaps(t *testing.T) {
+	at := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name    string
+		gap     time.Duration
+		started time.Time
+		outage  string
+		ended   bool
+		want    int64
+	}{
+		{name: "short", gap: 5 * time.Second, want: 5},
+		{name: "short boundary", gap: 15 * time.Second, want: 15},
+		{name: "long", gap: 16 * time.Second},
+		{name: "member", gap: 40 * time.Second, outage: `{"since":1,"detected":2,"members":{"node":{"last_seen":1,"recovered":0,"outage":false}},"notified":false}`, want: 40},
+		{name: "nonmember", gap: 40 * time.Second, outage: `{"members":{"other":{"last_seen":1}}}`},
+		{name: "outage ended", gap: 40 * time.Second, outage: `{"members":{"node":{"last_seen":1}}}`, ended: true},
+		{name: "no startup time", gap: 30 * time.Second},
+		{name: "restart", gap: 30 * time.Second, started: at.Add(15 * time.Second), want: 30},
+		{name: "stale before startup", gap: 10*time.Minute + 15*time.Second, started: at.Add(10 * time.Minute)},
+		{name: "late after startup", gap: 10*time.Minute + 15*time.Second, started: at.Add(15 * time.Second)},
+		{name: "restart boundaries", gap: 150 * time.Second, started: at.Add(75 * time.Second), want: 150},
+		{name: "before startup limit exceeded", gap: 91 * time.Second, started: at.Add(76 * time.Second)},
+		{name: "after startup limit exceeded", gap: 91 * time.Second, started: at.Add(15 * time.Second)},
+		{name: "gap after startup", gap: 30 * time.Second, started: at.Add(-time.Second)},
+		{name: "gap before startup", gap: 30 * time.Second, started: at.Add(31 * time.Second)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := billingStore(t)
+			s.StartedAt = tc.started
+			r := proto.Report{Up: 100}
+			if err := s.Accept("node", 1, at, "192.0.2.1", &r, func() error { return nil }, nil); err != nil {
+				t.Fatal(err)
+			}
+			if tc.outage != "" {
+				if err := s.SetKV("receiver.outage", tc.outage); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.ended {
+				if _, err := s.DB.Exec(`DELETE FROM kv WHERE key='receiver.outage'`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Accept("node", 2, at.Add(tc.gap), "192.0.2.1", &r, func() error { return nil }, nil); err != nil {
+				t.Fatal(err)
+			}
+			days, err := s.Days("node", "2026-10-27")
+			if err != nil || len(days) != 1 || days[0].Online != tc.want {
+				t.Fatalf("daily = %+v, err = %v; want online %d", days, err, tc.want)
+			}
+		})
+	}
+}
+func TestOnlineAccountingGapsAcrossMidnight(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 27, 23, 59, 45, 0, loc)
+	for _, tc := range []struct {
+		name   string
+		member bool
+	}{{"outage", true}, {"restart", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := billingStore(t)
+			s.Location = loc
+			if tc.member {
+				if err := s.SetKV("receiver.outage", `{"members":{"node":{"last_seen":1}}}`); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				s.StartedAt = at.Add(20 * time.Second)
+			}
+			r := proto.Report{Up: 100}
+			for i, now := range []time.Time{at, at.Add(40 * time.Second)} {
+				if err := s.Accept("node", uint64(i+1), now, "192.0.2.1", &r, func() error { return nil }, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			days, err := s.Days("node", "2026-10-27")
+			if err != nil || len(days) != 2 || days[0].Day != "2026-10-27" || days[0].Online != 15 || days[1].Day != "2026-10-28" || days[1].Online != 25 {
+				t.Fatal(days, err)
+			}
+		})
+	}
+}
 func TestSaturationDirectionsAndCalibration(t *testing.T) {
 	if SatAdd(math.MaxUint64-1, 10) != math.MaxUint64 {
 		t.Fatal("overflow")

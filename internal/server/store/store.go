@@ -22,6 +22,7 @@ type Store struct {
 	mu            sync.Mutex
 	Location      *time.Location
 	Interval      time.Duration
+	StartedAt     time.Time
 	RetentionDays int
 }
 type Node struct {

@@ -116,6 +116,7 @@ func run(args []string) error {
 		}
 		return nil
 	}
+	s.StartedAt = time.Now()
 	if e = c.validateTransport(*insecure); e != nil {
 		return e
 	}

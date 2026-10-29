@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
@@ -309,7 +310,32 @@ func (s *Store) account(tx *sql.Tx, n Node, r *proto.Report, now time.Time) erro
 	if _, err = tx.Exec(`INSERT INTO daily VALUES(?,?,?,?,?) ON CONFLICT(node,day) DO UPDATE SET tx=excluded.tx,rx=excluded.rx`, n.Name, day, strconv.FormatUint(SatAdd(d.TX, txBytes), 10), strconv.FormatUint(SatAdd(d.RX, rxBytes), 10), d.Online); err != nil {
 		return err
 	}
-	if n.LastSeen > 0 && now.Unix() >= n.LastSeen && now.Sub(time.Unix(n.LastSeen, 0)) <= 3*s.Interval {
+	online := false
+	if n.LastSeen > 0 && now.Unix() >= n.LastSeen {
+		last := time.Unix(n.LastSeen, 0)
+		grace := 3*s.Interval + time.Minute
+		online = now.Sub(last) <= 3*s.Interval
+		if !s.StartedAt.IsZero() && !last.After(s.StartedAt) && !now.Before(s.StartedAt) {
+			online = online || s.StartedAt.Sub(last) <= grace && now.Sub(s.StartedAt) <= grace
+		}
+		if !online {
+			var raw string
+			err = tx.QueryRow(`SELECT value FROM kv WHERE key='receiver.outage'`).Scan(&raw)
+			if err != nil && err != sql.ErrNoRows {
+				return err
+			}
+			if err == nil {
+				var outage struct {
+					Members map[string]json.RawMessage `json:"members"`
+				}
+				if err = json.Unmarshal([]byte(raw), &outage); err != nil {
+					return err
+				}
+				_, online = outage.Members[n.Name]
+			}
+		}
+	}
+	if online {
 		for start := time.Unix(n.LastSeen, 0).In(s.Location); start.Before(now); {
 			midnight := time.Date(start.Year(), start.Month(), start.Day()+1, 0, 0, 0, 0, s.Location)
 			end := now
