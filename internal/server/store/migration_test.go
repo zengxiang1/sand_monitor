@@ -47,7 +47,7 @@ func TestPhaseOneMigration(t *testing.T) {
 			}
 			defer s.Close()
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 7 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 8 {
 				t.Fatal(got, err)
 			}
 			n, err := s.Node("old")
@@ -146,7 +146,7 @@ func TestRevokedKeysMigration(t *testing.T) {
 				t.Fatal(version, fingerprint, name, at, err)
 			}
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 7 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 8 {
 				t.Fatal(version, got, err)
 			}
 		}
@@ -230,7 +230,7 @@ func TestV6DisplayNameAndCooldownMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 7 {
+		if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
 			t.Fatal(version, err)
 		}
 		n, err := s.Node("node")
@@ -256,5 +256,91 @@ func TestV6DisplayNameAndCooldownMigration(t *testing.T) {
 	var count int
 	if err := s.DB.QueryRow(`SELECT count(*) FROM notify_cooldowns WHERE warned=1`).Scan(&count); err != nil || count != 1 {
 		t.Fatal(count, err)
+	}
+}
+
+func TestV7SystemEventsMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	if err = s.AddNode("node", pub, time.Unix(100, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DB.Exec(`DROP TABLE event_deliveries;
+ DROP TABLE events;
+ CREATE TABLE events(id INTEGER PRIMARY KEY,ts INTEGER NOT NULL,node TEXT NOT NULL REFERENCES nodes(name),kind TEXT NOT NULL,detail TEXT NOT NULL,notified INTEGER NOT NULL DEFAULT 0,acked_at INTEGER NOT NULL DEFAULT 0,targets TEXT NOT NULL DEFAULT '',cooldown_key TEXT NOT NULL DEFAULT '',cooldown_decided INTEGER NOT NULL DEFAULT 0,suppressed INTEGER NOT NULL DEFAULT 0,notification_detail TEXT NOT NULL DEFAULT '');
+ CREATE INDEX events_node_ts ON events(node,ts);
+ CREATE INDEX events_cooldown ON events(node,cooldown_key,id);
+ CREATE TABLE event_deliveries(event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,notifier TEXT NOT NULL,PRIMARY KEY(event_id,notifier));
+ INSERT INTO events VALUES(41,100,'node','offline','retained delivered',1,110,'telegram','connectivity',1,0,'notification retained');
+ INSERT INTO events VALUES(73,120,'node','recovered','retained pending',0,0,'','connectivity',1,1,'merged');
+ INSERT INTO event_deliveries VALUES(41,'telegram:one'),(41,'webhook:two'),(73,'telegram:one');
+ PRAGMA user_version=7;`); err != nil {
+		t.Fatal(err)
+	}
+	queries := []string{
+		`SELECT json_group_array(json_array(id,ts,node,kind,detail,notified,acked_at,targets,cooldown_key,cooldown_decided,suppressed,notification_detail)) FROM (SELECT * FROM events ORDER BY id)`,
+		`SELECT json_group_array(json_array(event_id,notifier)) FROM (SELECT * FROM event_deliveries ORDER BY event_id,notifier)`,
+		`SELECT json_group_array(json_array(name,sql)) FROM (SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name='events' ORDER BY name)`,
+	}
+	before := make([]string, len(queries))
+	for i, query := range queries {
+		if err = s.DB.QueryRow(query).Scan(&before[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for i, query := range queries {
+		var after string
+		if err = s.DB.QueryRow(query).Scan(&after); err != nil || after != before[i] {
+			t.Fatal("migration changed data or indexes", before[i], after, err)
+		}
+	}
+	var version int
+	if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
+		t.Fatal(version, err)
+	}
+	if pending, err := s.Pending(10); err != nil || len(pending) != 1 || pending[0].ID != 73 {
+		t.Fatal("delivered event requeued", pending, err)
+	}
+	if delivered, err := s.Delivered(73, "telegram:one"); err != nil || !delivered {
+		t.Fatal("partial delivery receipt lost", delivered, err)
+	}
+	if err = s.Transaction(func(tx *sql.Tx) error { return AddEvent(tx, time.Now(), "", "receiver_up", "system event") }); err != nil {
+		t.Fatal(err)
+	}
+	var node, kind string
+	var notified, acked, decided, suppressed int
+	var targets, key, detail string
+	if err = s.DB.QueryRow(`SELECT node,kind,notified,acked_at,targets,cooldown_key,cooldown_decided,suppressed,notification_detail FROM events WHERE id=74`).Scan(&node, &kind, &notified, &acked, &targets, &key, &decided, &suppressed, &detail); err != nil || node != "" || kind != "receiver_up" || notified != 0 || acked != 0 || targets != "" || key != "" || decided != 0 || suppressed != 0 || detail != "" {
+		t.Fatal("system event or defaults changed", err)
+	}
+	rows, err := s.DB.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows.Next() || rows.Err() != nil {
+		t.Fatal("foreign key violation", rows.Err())
+	}
+	rows.Close()
+	// The delivery table must keep its original cascading foreign key.
+	if _, err = s.DB.Exec(`DELETE FROM events WHERE id=73`); err != nil {
+		t.Fatal(err)
+	}
+	if delivered, err := s.Delivered(73, "telegram:one"); err != nil || delivered {
+		t.Fatal("delivery cascade changed", delivered, err)
+	}
+	if err = s.Migrate(); err != nil {
+		t.Fatal(err)
 	}
 }

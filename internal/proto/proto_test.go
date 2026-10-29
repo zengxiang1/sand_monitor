@@ -55,3 +55,15 @@ func TestSignVerify(t *testing.T) {
 		}
 	}
 }
+
+func TestOutageValidation(t *testing.T) {
+	for _, tc := range []struct {
+		outage *Outage
+		valid  bool
+	}{{nil, true}, {&Outage{Since: 1, Failures: 1}, true}, {&Outage{Since: 0, Failures: 1}, false}, {&Outage{Since: -1, Failures: 1}, false}, {&Outage{Since: 1, Failures: 0}, false}, {&Outage{Since: 1, Failures: -1}, false}} {
+		r := Report{Version: 1, Bin: "sha256:" + strings.Repeat("a", 64), OS: "linux", Arch: "amd64", Outage: tc.outage}
+		if err := r.Validate(); (err == nil) != tc.valid {
+			t.Fatal(tc, err)
+		}
+	}
+}

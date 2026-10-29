@@ -17,3 +17,9 @@ func TestDurationAndKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestReceiverKinds(t *testing.T) {
+	if Kind("receiver_down") != "主控中断" || Kind("receiver_up") != "主控恢复" {
+		t.Fatal("missing receiver labels")
+	}
+}

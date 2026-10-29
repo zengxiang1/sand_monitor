@@ -6,7 +6,7 @@ import (
 )
 
 func Kind(kind string) string {
-	names := map[string]string{"flapping": "频繁掉线", "login_new_ip": "新登录", "offline": "失联", "recovered": "恢复", "bin_changed": "二进制变化", "resource": "资源告警", "billing": "续费", "traffic": "流量", "traffic_reset": "流量"}
+	names := map[string]string{"receiver_down": "主控中断", "receiver_up": "主控恢复", "flapping": "频繁掉线", "login_new_ip": "新登录", "offline": "失联", "recovered": "恢复", "bin_changed": "二进制变化", "resource": "资源告警", "billing": "续费", "traffic": "流量", "traffic_reset": "流量"}
 	if label, ok := names[kind]; ok {
 		return label
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -553,5 +554,62 @@ func TestStaticFilesOnly(t *testing.T) {
 			t.Fatal(name, w.Code)
 		}
 		checkHeaders(t, w)
+	}
+}
+
+func TestReceiverOutagePanel(t *testing.T) {
+	f := setup(t)
+	engine := alert.New(f.s, alert.DefaultConfig())
+	engine.StartedAt = f.now.Add(-time.Hour)
+	for _, name := range []string{"node1", "node2"} {
+		if err := f.s.AddNode(name, f.key.Public().(ed25519.PublicKey), f.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report := proto.Report{Version: 1, Up: 1000, Bin: "sha256:" + strings.Repeat("a", 64), OS: "linux", Arch: "amd64"}
+	accept := func(name string) {
+		t.Helper()
+		n, err := f.s.Node(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = f.s.Accept(name, n.LastSeq+1, f.now, "192.0.2.1", &report, func() error { return nil }, func(tx *sql.Tx, n store.Node) error { return engine.Report(tx, n, report, f.now) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"node", "node1", "node2"} {
+		accept(name)
+	}
+	f.now = f.now.Add(16 * time.Second)
+	if err := engine.CheckOffline(f.now); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/", "/nodes/node"} {
+		w := f.request("GET", path, nil, true)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `class="badge status muted">主控中断</span>`) {
+			t.Fatal(path, w.Code, w.Body.String())
+		}
+		if path == "/" && !strings.Contains(w.Body.String(), `失联<span class="status-dot danger" aria-hidden="true"></span></div><strong>0</strong>`) {
+			t.Fatal("outage members counted offline", w.Body.String())
+		}
+	}
+	f.now = f.now.Add(120 * time.Second)
+	if err := engine.CheckOffline(f.now); err != nil {
+		t.Fatal(err)
+	}
+	w := f.request("GET", "/", nil, true)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "疑似主控网络或接收服务中断") || !strings.Contains(w.Body.String(), `<span class="node-name">主控</span>`) || strings.Contains(w.Body.String(), `href="/nodes/"`) {
+		t.Fatal("missing or invalid system event", w.Code, w.Body.String())
+	}
+	f.now = f.now.Add(5 * time.Second)
+	for _, name := range []string{"node", "node1", "node2"} {
+		accept(name)
+	}
+	if err := engine.CheckOffline(f.now); err != nil {
+		t.Fatal(err)
+	}
+	w = f.request("GET", "/", nil, true)
+	if w.Code != 200 || strings.Contains(w.Body.String(), `class="badge status muted">主控中断</span>`) || !strings.Contains(w.Body.String(), `class="badge ok">主控恢复</span>`) {
+		t.Fatal("recovery not displayed", w.Code, w.Body.String())
 	}
 }

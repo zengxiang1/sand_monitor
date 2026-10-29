@@ -28,7 +28,13 @@ type Login struct {
 	Time int64  `json:"t"`
 }
 
+type Outage struct {
+	Since    int64 `json:"since"`
+	Failures int   `json:"failures"`
+}
+
 type Report struct {
+	Outage   *Outage    `json:"outage,omitempty"`
 	Version  int        `json:"v"`
 	CPU      float64    `json:"cpu"` // percent, sampled delta
 	Load     [3]float64 `json:"load"`
@@ -78,6 +84,9 @@ func ParsePublicKey(s string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(b), nil
 }
 func (r Report) Validate() error {
+	if r.Outage != nil && (r.Outage.Since <= 0 || r.Outage.Failures < 1) {
+		return fmt.Errorf("invalid outage")
+	}
 	if r.Version != 1 || !strings.HasPrefix(r.Bin, "sha256:") || len(r.Bin) != 71 || r.OS == "" || r.Arch == "" {
 		return fmt.Errorf("invalid report metadata")
 	}

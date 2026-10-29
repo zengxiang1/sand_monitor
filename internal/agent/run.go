@@ -75,6 +75,7 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 		name      string
 		busy      bool
 		failures  int
+		since     int64
 		ready     time.Time
 		lastError string
 		logged    time.Time
@@ -84,9 +85,10 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 		targets = append(targets, &sender{name: "backup"})
 	}
 	type result struct {
-		sender *sender
-		err    error
-		at     time.Time
+		sender  *sender
+		err     error
+		at      time.Time
+		started int64
 	}
 	results := make(chan result, len(targets))
 	var wg sync.WaitGroup
@@ -127,15 +129,19 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 			go func() {
 				defer wg.Done()
 				report := r
+				if target.failures > 0 {
+					report.Outage = &proto.Outage{Since: target.since, Failures: target.failures}
+				}
 				logins, err := collector.Logins(target.name)
 				report.Login = logins
+				started := time.Now().Unix()
 				if err == nil {
 					err = client.SendTo(ctx, target.name, report)
 				}
 				if err == nil {
 					err = collector.Acknowledge(target.name)
 				}
-				results <- result{target, err, time.Now()}
+				results <- result{target, err, time.Now(), started}
 			}()
 		}
 	}
@@ -168,7 +174,11 @@ func runLoop(ctx context.Context, c Config, client *Client, collector sampler, t
 				}
 				target.failures, target.lastError = 0, ""
 				target.ready = time.Time{}
+				target.since = 0
 				continue
+			}
+			if target.failures == 0 {
+				target.since = done.started
 			}
 			target.failures++
 			target.ready = done.at.Add(backoff(target.failures))

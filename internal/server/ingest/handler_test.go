@@ -277,3 +277,19 @@ func TestSequenceAndRateBeforeJSON(t *testing.T) {
 	check(t, x.h, signed(x.key, "node", 5, x.now.Unix(), []byte("{")), 401)
 	check(t, x.h, signed(x.key, "node", 6, x.now.Unix(), []byte("{")), 429)
 }
+
+func TestOutageReport(t *testing.T) {
+	for _, tc := range []struct {
+		outage *proto.Outage
+		status int
+	}{{nil, 204}, {&proto.Outage{Since: 1, Failures: 2}, 204}, {&proto.Outage{Since: 0, Failures: 2}, 400}, {&proto.Outage{Since: 1, Failures: 0}, 400}} {
+		x := newSetup(t)
+		r := sample()
+		r.Outage = tc.outage
+		body, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(t, x.h, signed(x.key, "node", 1, x.now.Unix(), body), tc.status)
+	}
+}

@@ -25,6 +25,7 @@ type Client struct {
 	ownTransports bool
 	mu            sync.Mutex
 	seq           uint64
+	noOutage      map[string]bool
 	Now           func() time.Time
 }
 
@@ -165,6 +166,11 @@ func (c *Client) SendTo(ctx context.Context, target string, r proto.Report) erro
 	if e != nil {
 		return e
 	}
+	c.mu.Lock()
+	if c.noOutage[target] {
+		r.Outage = nil
+	}
+	c.mu.Unlock()
 	if e := r.Validate(); e != nil {
 		return e
 	}
@@ -196,6 +202,14 @@ func (c *Client) SendTo(ctx context.Context, target string, r proto.Report) erro
 	// No response content is interpreted. Bound the drain, even on errors.
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	_ = resp.Body.Close()
+	if resp.StatusCode == 400 && r.Outage != nil {
+		c.mu.Lock()
+		if c.noOutage == nil {
+			c.noOutage = map[string]bool{}
+		}
+		c.noOutage[target] = true
+		c.mu.Unlock()
+	}
 	if resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("report status %d", resp.StatusCode)
 	}

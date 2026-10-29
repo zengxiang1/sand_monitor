@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -214,6 +215,100 @@ func TestLoopCancelRetry(t *testing.T) {
 				}
 				if calls != want || int(sampler.count.Load()) != want {
 					t.Fatal("sent after cancellation", calls, sampler.count.Load())
+				}
+			})
+		})
+	}
+}
+
+func TestLoopOutagePerTargetAndCompatibility(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				c := config(t)
+				c.BackupServer = "https://backup.localhost"
+				key, err := GenerateKey(c.Key, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				type sent struct {
+					target string
+					at     int64
+					outage *proto.Outage
+				}
+				reports := make(chan sent, 20)
+				calls := map[string]int{}
+				var mu sync.Mutex
+				client, err := NewClient(c, key, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					var r proto.Report
+					if err := json.NewDecoder(req.Body).Decode(&r); err != nil {
+						t.Error(err)
+					}
+					target := req.URL.Host
+					reports <- sent{target, time.Now().Unix(), r.Outage}
+					mu.Lock()
+					calls[target]++
+					n := calls[target]
+					mu.Unlock()
+					status := 204
+					if target == "backup.localhost" && n <= 1 || target != "backup.localhost" && (n <= 2 || n == 5) {
+						status = 503
+					}
+					if legacy && target != "backup.localhost" && r.Outage != nil {
+						status = 400
+					}
+					// Timeouts must count from the start, rather than the failed response.
+					time.Sleep(time.Second)
+					return &http.Response{StatusCode: status, Body: http.NoBody}, nil
+				}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				ticks := make(chan time.Time)
+				ctx, cancel := context.WithCancel(context.Background())
+				done := make(chan struct{})
+				sampler := newLoopSampler(t, c)
+				go func() { defer close(done); _ = runLoop(ctx, c, client, sampler, ticks, Backoff) }()
+				defer func() { cancel(); <-done }()
+				time.Sleep(10 * time.Second)
+				synctest.Wait()
+				for range 3 {
+					ticks <- time.Now()
+					time.Sleep(10 * time.Second)
+					synctest.Wait()
+				}
+				cancel()
+				<-done
+				close(reports)
+				byTarget := map[string][]sent{}
+				for r := range reports {
+					byTarget[r.target] = append(byTarget[r.target], r)
+				}
+				for target, sent := range byTarget {
+					isBackup := target == "backup.localhost"
+					wantCalls := 7
+					if isBackup {
+						wantCalls = 5
+					}
+					if len(sent) != wantCalls {
+						t.Fatal(target, len(sent), wantCalls)
+					}
+					for i, r := range sent {
+						failures := 0
+						since := sent[0].at
+						if i == 1 {
+							failures = 1
+						}
+						if !isBackup && i == 2 && !legacy {
+							failures = 2
+						}
+						if !isBackup && i == 5 && !legacy {
+							failures, since = 1, sent[4].at
+						}
+						if failures == 0 && r.outage != nil || failures > 0 && (r.outage == nil || r.outage.Failures != failures || r.outage.Since != since) {
+							t.Fatalf("%s send %d: outage=%+v, want since=%d failures=%d", target, i, r.outage, since, failures)
+						}
+					}
 				}
 			})
 		})

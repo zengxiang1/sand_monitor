@@ -69,7 +69,7 @@ func (s *Store) Migrate() error {
 		if e := tx.QueryRow(`PRAGMA user_version`).Scan(&version); e != nil {
 			return e
 		}
-		if version > 7 {
+		if version > 8 {
 			return fmt.Errorf("unsupported schema version %d", version)
 		}
 		if version < 3 {
@@ -134,6 +134,34 @@ func (s *Store) Migrate() error {
 				return err
 			}
 		}
+		if version < 8 {
+			if _, err := tx.Exec(`CREATE TEMP TABLE saved_deliveries AS SELECT * FROM event_deliveries;
+ DROP TABLE event_deliveries;
+ CREATE TABLE events_new(id INTEGER PRIMARY KEY,ts INTEGER NOT NULL,node TEXT NOT NULL,kind TEXT NOT NULL,detail TEXT NOT NULL,notified INTEGER NOT NULL DEFAULT 0,acked_at INTEGER NOT NULL DEFAULT 0,targets TEXT NOT NULL DEFAULT '',cooldown_key TEXT NOT NULL DEFAULT '',cooldown_decided INTEGER NOT NULL DEFAULT 0,suppressed INTEGER NOT NULL DEFAULT 0,notification_detail TEXT NOT NULL DEFAULT '');
+ INSERT INTO events_new(id,ts,node,kind,detail,notified,acked_at,targets,cooldown_key,cooldown_decided,suppressed,notification_detail) SELECT id,ts,node,kind,detail,notified,acked_at,targets,cooldown_key,cooldown_decided,suppressed,notification_detail FROM events;
+ DROP TABLE events;
+ ALTER TABLE events_new RENAME TO events;
+ CREATE INDEX events_node_ts ON events(node,ts);
+ CREATE INDEX events_cooldown ON events(node,cooldown_key,id);
+ CREATE TABLE event_deliveries(event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,notifier TEXT NOT NULL,PRIMARY KEY(event_id,notifier));
+ INSERT INTO event_deliveries(event_id,notifier) SELECT event_id,notifier FROM saved_deliveries;
+ DROP TABLE saved_deliveries;
+ PRAGMA user_version=8;`); err != nil {
+				return err
+			}
+			rows, err := tx.Query(`PRAGMA foreign_key_check`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			if rows.Next() {
+				return fmt.Errorf("foreign key violation after events migration")
+			}
+			if err = rows.Err(); err != nil {
+				return err
+			}
+			rows.Close()
+		}
 		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS revoked_keys(fingerprint TEXT PRIMARY KEY,node TEXT NOT NULL,revoked_at INTEGER NOT NULL);
  INSERT OR IGNORE INTO revoked_keys SELECT fingerprint,name,revoked_at FROM nodes WHERE revoked_at>0;`)
 		return err
@@ -174,6 +202,9 @@ func (n Node) Label() string {
 	return n.Name
 }
 func (e Event) Label() string {
+	if e.Node == "" {
+		return "主控"
+	}
 	if e.DisplayName != "" {
 		return e.DisplayName
 	}

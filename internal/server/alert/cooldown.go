@@ -13,9 +13,13 @@ func (d *Dispatcher) prepare(event store.Event, notifiers []Notifier) (store.Eve
 	if d.Now != nil {
 		now = d.Now()
 	}
-	if len(notifiers) == 0 || d.Scope == "security" && event.Kind != "offline" && event.Kind != "recovered" && event.Kind != "login_new_ip" && event.Kind != "bin_changed" && event.Kind != "flapping" {
+	if len(notifiers) == 0 || d.Scope == "security" && event.Kind != "offline" && event.Kind != "recovered" && event.Kind != "login_new_ip" && event.Kind != "bin_changed" && event.Kind != "flapping" && event.Kind != "receiver_down" && event.Kind != "receiver_up" {
 		event.Notified = true
 		return event, d.Store.MarkNotified(event.ID)
+	}
+	if event.Node == "" {
+		event.DisplayName = "主控"
+		return event, nil
 	}
 	node, err := d.Store.Node(event.Node)
 	if err != nil {

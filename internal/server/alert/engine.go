@@ -3,6 +3,7 @@ package alert
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 	"wanglou/internal/proto"
 	"wanglou/internal/server/eventtext"
@@ -37,6 +38,19 @@ func lastState(tx *sql.Tx, node string, since int64) (string, error) {
 	return kind, e
 }
 func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time) error {
+	outage, err := loadOutage(tx)
+	if err != nil {
+		return err
+	}
+	if outage != nil {
+		if member, ok := outage.Members[n.Name]; ok && member.Recovered == 0 {
+			member.Recovered, member.Outage = now.Unix(), r.Outage != nil
+			outage.Members[n.Name] = member
+			if err = saveOutage(tx, outage); err != nil {
+				return err
+			}
+		}
+	}
 	state, err := lastState(tx, n.Name, n.CreatedAt)
 	if err != nil {
 		return err
@@ -45,6 +59,11 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 		detail := "首次开始上报"
 		if n.LastSeen != 0 {
 			detail = "重新开始上报，离线 " + eventtext.Duration(now.Unix()-n.LastSeen)
+		}
+		if r.Outage != nil {
+			detail += fmt.Sprintf("；agent 期间持续运行，自 %s 起上报失败 %d 次", time.Unix(r.Outage.Since, 0).In(e.Store.Location).Format("15:04:05"), r.Outage.Failures)
+		} else if n.LastSeen != 0 && r.Up < float64(now.Unix()-n.LastSeen) {
+			detail += "；节点期间重启过（已运行 " + eventtext.Duration(int64(r.Up)) + "）"
 		}
 		if err = store.AddEvent(tx, now, n.Name, "recovered", detail); err != nil {
 			return err
@@ -159,7 +178,7 @@ func (e *Engine) CheckOffline(now time.Time) error {
 			return err
 		}
 		type item struct {
-			name          string
+			name, state   string
 			created, last int64
 		}
 		var nodes []item
@@ -177,7 +196,87 @@ func (e *Engine) CheckOffline(now time.Time) error {
 		if err != nil {
 			return err
 		}
+		outage, err := loadOutage(tx)
+		if err != nil {
+			return err
+		}
+		active, silent := 0, map[string]outageMember{}
+		overdue := false
+		for i := range nodes {
+			n := &nodes[i]
+			n.state, err = lastState(tx, n.name, n.created)
+			if err != nil {
+				return err
+			}
+			if n.last == 0 || n.last < now.Add(-10*time.Minute).Unix() || n.state == "offline" {
+				continue
+			}
+			active++
+			gap := now.Sub(time.Unix(n.last, 0))
+			if gap > 2*e.Config.Interval {
+				silent[n.name] = outageMember{LastSeen: n.last}
+			}
+			overdue = overdue || gap > 3*e.Config.Interval
+		}
+		if outage == nil && overdue && active >= 3 && len(silent) >= 2 && len(silent)*3 >= active*2 {
+			outage = &receiverOutage{Detected: now.Unix(), Members: silent}
+			for _, member := range silent {
+				outage.Since = max(outage.Since, member.LastSeen)
+			}
+		}
+		if outage != nil {
+			for name, member := range silent {
+				if _, ok := outage.Members[name]; !ok {
+					outage.Members[name] = member
+				}
+			}
+			recovered, failures := 0, 0
+			var first int64
+			for _, member := range outage.Members {
+				if member.Recovered != 0 {
+					recovered++
+					if first == 0 || member.Recovered < first {
+						first = member.Recovered
+					}
+					if member.Outage {
+						failures++
+					}
+				}
+			}
+			total := len(outage.Members)
+			if recovered == total || recovered > 0 && now.Sub(time.Unix(first, 0)) > 3*e.Config.Interval+time.Minute {
+				detail := fmt.Sprintf("主控网络中断 %s（%s–%s）；受影响 %d 个节点，已恢复 %d 个", eventtext.Duration(first-outage.Since), time.Unix(outage.Since, 0).In(e.Store.Location).Format("15:04:05"), time.Unix(first, 0).In(e.Store.Location).Format("15:04:05"), total, recovered)
+				if failures > 0 {
+					detail += fmt.Sprintf("；其中 %d 个节点的 agent 报告期间持续运行、上报失败", failures)
+				}
+				if recovered < total {
+					detail += fmt.Sprintf("；另有 %d 个仍失联，已单独告警", total-recovered)
+				}
+				if err = store.AddEvent(tx, now, "", "receiver_up", detail); err != nil {
+					return err
+				}
+				if _, err = tx.Exec(`DELETE FROM kv WHERE key='receiver.outage'`); err != nil {
+					return err
+				}
+				outage = nil
+			} else {
+				if !outage.Notified && now.Unix()-outage.Detected >= 120 {
+					if err = store.AddEvent(tx, now, "", "receiver_down", fmt.Sprintf("%d 个节点同时中断上报，疑似主控网络或接收服务中断，已持续 %s", total, eventtext.Duration(now.Unix()-outage.Detected))); err != nil {
+						return err
+					}
+					outage.Notified = true
+				}
+				if err = saveOutage(tx, outage); err != nil {
+					return err
+				}
+			}
+		}
 		for _, n := range nodes {
+			if outage != nil {
+				if _, ok := outage.Members[n.name]; ok {
+					continue
+				}
+			}
 			last := n.last
 			grace := 3 * e.Config.Interval
 			if last == 0 {
@@ -187,11 +286,7 @@ func (e *Engine) CheckOffline(now time.Time) error {
 			if now.Sub(time.Unix(last, 0)) <= grace {
 				continue
 			}
-			state, err := lastState(tx, n.name, n.created)
-			if err != nil {
-				return err
-			}
-			if state != "offline" {
+			if n.state != "offline" {
 				if err = store.AddEvent(tx, now, n.name, "offline", eventtext.Offline(n.last, e.Store.Location)); err != nil {
 					return err
 				}

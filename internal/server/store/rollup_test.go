@@ -38,7 +38,7 @@ func TestV4MigrationAndRollupValues(t *testing.T) {
 	}
 	defer up.Close()
 	var version, count int
-	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 7 {
+	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
 		t.Fatal(version, err)
 	}
 	if err = up.DB.QueryRow(`SELECT count(*) FROM metrics`).Scan(&count); err != nil || count != 4 {

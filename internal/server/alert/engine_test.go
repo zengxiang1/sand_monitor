@@ -29,7 +29,7 @@ func setupEngine(t *testing.T) (*Engine, time.Time) {
 	return engine, now
 }
 func sampleReport() proto.Report {
-	return proto.Report{Version: 1, Bin: "sha256:" + strings.Repeat("a", 64), OS: "linux", Arch: "amd64", Mem: [2]float64{10, 100}, Disk: [2]float64{10, 100}, Login: []proto.Login{}}
+	return proto.Report{Version: 1, Up: 864000, Bin: "sha256:" + strings.Repeat("a", 64), OS: "linux", Arch: "amd64", Mem: [2]float64{10, 100}, Disk: [2]float64{10, 100}, Login: []proto.Login{}}
 }
 func send(t *testing.T, e *Engine, now time.Time, r proto.Report) {
 	t.Helper()

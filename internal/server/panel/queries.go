@@ -198,6 +198,13 @@ func (h *Handler) view(n store.Node) (nodeView, error) {
 		v.Status = "从未上报"
 		v.Tone = "muted"
 	}
+	var interrupted bool
+	if err = h.Store.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM kv,json_each(kv.value,'$.members') member WHERE kv.key='receiver.outage' AND member.key=?)`, n.Name).Scan(&interrupted); err != nil {
+		return v, err
+	}
+	if interrupted {
+		v.Status, v.Tone = "主控中断", "muted"
+	}
 	if n.RevokedAt != 0 {
 		v.Status = "已吊销"
 		v.Tone = "muted"
@@ -287,7 +294,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 		if n.RevokedAt == 0 && n.LastSeen != 0 {
 			if v.Status == "失联" {
 				data.Offline++
-			} else {
+			} else if v.Status != "主控中断" {
 				data.Online++
 			}
 			if v.Active {
@@ -326,9 +333,9 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request, sess session)
 	h.render(w, r, "overview", data, 200)
 }
 func (h *Handler) events(banner bool) ([]eventView, error) {
-	query := `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,n.display_name,e.suppressed FROM events e JOIN nodes n ON n.name=e.node ORDER BY e.id DESC LIMIT 20`
+	query := `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,coalesce(n.display_name,''),e.suppressed FROM events e LEFT JOIN nodes n ON n.name=e.node ORDER BY e.id DESC LIMIT 20`
 	if banner {
-		query = `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,n.display_name,e.suppressed FROM events e JOIN nodes n ON n.name=e.node WHERE e.kind='login_new_ip' AND e.acked_at=0 ORDER BY e.id DESC LIMIT 5`
+		query = `SELECT e.id,e.ts,e.node,e.kind,e.detail,e.notified,coalesce(n.display_name,''),e.suppressed FROM events e LEFT JOIN nodes n ON n.name=e.node WHERE e.kind='login_new_ip' AND e.acked_at=0 ORDER BY e.id DESC LIMIT 5`
 	}
 	rows, err := h.Store.DB.Query(query)
 	if err != nil {

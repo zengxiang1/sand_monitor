@@ -57,4 +57,4 @@
 {{define "content"}}<span hidden data-panel-refresh="{{.Refresh}}"></span>{{if eq .Page "login"}}{{template "login" .}}{{else if eq .Page "overview"}}{{template "overview" .}}{{else if eq .Page "node"}}{{template "node" .}}{{else if eq .Page "billing"}}{{template "billing" .}}{{else if eq .Page "notify"}}{{template "notify" .}}{{else if eq .Page "public"}}{{template "public" .}}{{else if eq .Page "enroll"}}{{template "enroll" .}}{{end}}{{end}}
 
 {{define "node-label"}}{{if .DisplayName}}{{.DisplayName}} <span class="node-identity">· {{.Name}}</span>{{else}}{{.Name}}{{end}}{{end}}
-{{define "event-label"}}{{if .DisplayName}}{{.DisplayName}} <span class="node-identity">· {{.Node}}</span>{{else}}{{.Node}}{{end}}{{end}}
+{{define "event-label"}}{{if not .Node}}主控{{else if .DisplayName}}{{.DisplayName}} <span class="node-identity">· {{.Node}}</span>{{else}}{{.Node}}{{end}}{{end}}
