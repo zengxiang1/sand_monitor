@@ -16,6 +16,7 @@ import (
 
 var ErrReplay = errors.New("sequence replay")
 var ErrNode = errors.New("unknown or revoked node")
+var ErrProbeTime = errors.New("probe timestamp is too far in the future")
 
 type Store struct {
 	DB            *sql.DB
@@ -45,6 +46,7 @@ type Event struct {
 	Targets     string `json:"targets,omitempty"`
 	DisplayName string `json:"display_name"`
 	Suppressed  bool   `json:"-"`
+	Deferred    bool   `json:"-"`
 }
 
 func Open(path string) (*Store, error) {
@@ -70,7 +72,7 @@ func (s *Store) Migrate() error {
 		if e := tx.QueryRow(`PRAGMA user_version`).Scan(&version); e != nil {
 			return e
 		}
-		if version > 8 {
+		if version > 9 {
 			return fmt.Errorf("unsupported schema version %d", version)
 		}
 		if version < 3 {
@@ -162,6 +164,15 @@ func (s *Store) Migrate() error {
 				return err
 			}
 			rows.Close()
+		}
+		if version < 9 {
+			if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS probe_samples(node TEXT NOT NULL REFERENCES nodes(name),target TEXT NOT NULL,ts INTEGER NOT NULL,ip TEXT NOT NULL,dns_ms REAL NOT NULL,tcp_ms REAL NOT NULL,tls_ms REAL NOT NULL,ttfb_ms REAL NOT NULL,total_ms REAL NOT NULL,status INTEGER NOT NULL,error TEXT NOT NULL,PRIMARY KEY(node,target,ts));
+ CREATE INDEX IF NOT EXISTS probe_samples_ts ON probe_samples(ts);
+ CREATE TABLE IF NOT EXISTS probe_alerts(node TEXT NOT NULL REFERENCES nodes(name),target TEXT NOT NULL,last_ts INTEGER NOT NULL,failures INTEGER NOT NULL,active INTEGER NOT NULL,PRIMARY KEY(node,target));
+ CREATE TABLE IF NOT EXISTS probe_groups(event_id INTEGER PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE);
+ PRAGMA user_version=9;`); err != nil {
+				return err
+			}
 		}
 		_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS revoked_keys(fingerprint TEXT PRIMARY KEY,node TEXT NOT NULL,revoked_at INTEGER NOT NULL);
  INSERT OR IGNORE INTO revoked_keys SELECT fingerprint,name,revoked_at FROM nodes WHERE revoked_at>0;`)
@@ -284,6 +295,17 @@ func (s *Store) Accept(name string, seq uint64, now time.Time, ip string, r *pro
 		if _, e = tx.Exec(`INSERT INTO metrics VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, name, now.Unix(), r.CPU, r.Load[0], r.Load[1], r.Load[2], r.Mem[0], r.Mem[1], r.Swap[0], r.Swap[1], r.Disk[0], r.Disk[1], r.Net[0], r.Net[1], strconv.FormatUint(r.NetTotal[0], 10), strconv.FormatUint(r.NetTotal[1], 10), r.Conn[0], r.Conn[1], r.Up); e != nil {
 			return e
 		}
+		for _, probe := range r.Probes {
+			if probe.Time > now.Add(time.Minute).Unix() {
+				return ErrProbeTime
+			}
+			if probe.Time < now.Add(-7*24*time.Hour).Unix() || probe.Time < n.CreatedAt {
+				continue
+			}
+			if _, e = tx.Exec(`INSERT OR IGNORE INTO probe_samples(node,target,ts,ip,dns_ms,tcp_ms,tls_ms,ttfb_ms,total_ms,status,error) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, name, probe.Target, probe.Time, probe.IP, probe.DNSMS, probe.TCPMS, probe.TLSMS, probe.TTFBMS, probe.TotalMS, probe.Status, probe.Error); e != nil {
+				return e
+			}
+		}
 		if e = s.account(tx, n, r, now); e != nil {
 			return e
 		}
@@ -335,6 +357,7 @@ func (s *Store) Cleanup(now time.Time) error {
 			{"metrics_1h", now.Add(-time.Duration(s.RetentionDays) * 24 * time.Hour).Unix()},
 			{"events", now.Add(-time.Duration(s.RetentionDays) * 24 * time.Hour).Unix()},
 			{"logins", now.Add(-time.Duration(s.RetentionDays) * 24 * time.Hour).Unix()},
+			{"probe_samples", now.Add(-7 * 24 * time.Hour).Unix()},
 		} {
 			cutoff := item.cutoff
 			key := ""

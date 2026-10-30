@@ -340,7 +340,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.accepted++
 		h.mu.Unlock()
 		w.WriteHeader(204)
-	case errors.Is(e, errReport):
+	case errors.Is(e, errReport), errors.Is(e, store.ErrProbeTime):
 		h.fail(w, 400, "report")
 	case errors.Is(e, errRate):
 		h.fail(w, 429, "rate")

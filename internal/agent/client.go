@@ -26,6 +26,7 @@ type Client struct {
 	mu            sync.Mutex
 	seq           uint64
 	noOutage      map[string]bool
+	noProbes      map[string]bool
 	Now           func() time.Time
 }
 
@@ -170,6 +171,9 @@ func (c *Client) SendTo(ctx context.Context, target string, r proto.Report) erro
 	if c.noOutage[target] {
 		r.Outage = nil
 	}
+	if c.noProbes[target] {
+		r.Probes = nil
+	}
 	c.mu.Unlock()
 	if e := r.Validate(); e != nil {
 		return e
@@ -202,6 +206,17 @@ func (c *Client) SendTo(ctx context.Context, target string, r proto.Report) erro
 	// No response content is interpreted. Bound the drain, even on errors.
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	_ = resp.Body.Close()
+	if resp.StatusCode == 400 && len(r.Probes) > 0 {
+		c.mu.Lock()
+		if c.noProbes == nil {
+			c.noProbes = map[string]bool{}
+		}
+		c.noProbes[target] = true
+		c.mu.Unlock()
+		// Test the older report shape before attributing this rejection to outage.
+		r.Probes = nil
+		return c.SendTo(ctx, target, r)
+	}
 	if resp.StatusCode == 400 && r.Outage != nil {
 		c.mu.Lock()
 		if c.noOutage == nil {

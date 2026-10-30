@@ -25,6 +25,8 @@ type nodeView struct {
 	Status, Tone, Spark, SparkArea string
 	Active                         bool
 	Tags                           []tag
+	Probes                         []probeView
+	Mainland                       []mainlandProbeView
 }
 type eventView struct {
 	store.Event
@@ -45,6 +47,7 @@ type page struct {
 	Billing                                                                 billingPage
 	Public                                                                  publicPage
 	Notify                                                                  notifyPage
+	MainlandSettings                                                        mainlandPage
 	PublicDir, Heartbeat, Peer, BackupIngestURL, BackupCommand              string
 	HeartbeatConfigured                                                     bool
 	Refresh                                                                 bool
@@ -60,6 +63,7 @@ type page struct {
 	Stats                                                                   ingest.Statistics
 	Channels                                                                []string
 	Interval, Range, Cooldown                                               string
+	ProbeRange                                                              string
 	Name, Note, PublicURL, Command, State, Code, Pubkey, Success, Remaining string
 	Fingerprint                                                             []string
 	Expires                                                                 int64
@@ -209,6 +213,16 @@ func (h *Handler) view(n store.Node) (nodeView, error) {
 		v.Status = "已吊销"
 		v.Tone = "muted"
 	}
+	mainland, err := h.Store.MainlandProbes(n.Name)
+	if err != nil {
+		return v, err
+	}
+	source, err := h.Store.MainlandSource()
+	if err != nil {
+		return v, err
+	}
+	v.Mainland = mainlandViews(mainland, source, h.Now())
+
 	return v, nil
 }
 func points(values []float64, width, height, maxValue float64) string {

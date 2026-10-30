@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	"wanglou/internal/agent"
@@ -44,6 +45,7 @@ func run(args []string) error {
 		wtmpPath := fs.String("wtmp-path", collect.DefaultWtmpPath, "local wtmp file")
 		force := fs.Bool("force", false, "replace existing key and config")
 		insecure := fs.Bool("insecure-http", false, "allow local development HTTP")
+		probeTargets := fs.String("probe-targets", "", "comma-separated HTTPS probe targets; empty disables probes when explicitly set")
 		if e := fs.Parse(args[1:]); e != nil {
 			return e
 		}
@@ -51,6 +53,14 @@ func run(args []string) error {
 			return fmt.Errorf("unexpected arguments")
 		}
 		c := agent.Config{Name: *name, Server: *server, BackupServer: *backup, Key: *keyPath, StateFile: *state, Interval: 5 * time.Second, InsecureHTTP: *insecure, ProcRoot: *procRoot, RootFS: *rootFS, WtmpPath: *wtmpPath}
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "probe-targets" {
+				c.ProbeTargets = []string{}
+				if *probeTargets != "" {
+					c.ProbeTargets = strings.Split(*probeTargets, ",")
+				}
+			}
+		})
 		if e := c.Validate(); e != nil {
 			return e
 		}

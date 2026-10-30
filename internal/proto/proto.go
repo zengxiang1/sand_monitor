@@ -9,17 +9,21 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
-	MaxBody    = 64 * 1024
-	NodeHeader = "X-Wanglou-Node"
-	SeqHeader  = "X-Wanglou-Seq"
-	TsHeader   = "X-Wanglou-Ts"
-	SigHeader  = "X-Wanglou-Sig"
+	MaxBody       = 64 * 1024
+	NodeHeader    = "X-Wanglou-Node"
+	SeqHeader     = "X-Wanglou-Seq"
+	TsHeader      = "X-Wanglou-Ts"
+	SigHeader     = "X-Wanglou-Sig"
+	ProbeInterval = time.Hour
+	ProbeMaxAge   = 75 * time.Minute
 )
 
 type Login struct {
@@ -33,8 +37,62 @@ type Outage struct {
 	Failures int   `json:"failures"`
 }
 
+type Probe struct {
+	Target  string  `json:"target"`
+	Time    int64   `json:"time"`
+	IP      string  `json:"ip"`
+	DNSMS   float64 `json:"dns_ms"`
+	TCPMS   float64 `json:"tcp_ms"`
+	TLSMS   float64 `json:"tls_ms"`
+	TTFBMS  float64 `json:"ttfb_ms"`
+	TotalMS float64 `json:"total_ms"`
+	Status  int     `json:"status"`
+	Error   string  `json:"error,omitempty"`
+}
+
+// ValidateProbeTargets is shared by the configuration and report boundaries.
+func ValidateProbeTargets(targets []string) error {
+	if len(targets) > 8 {
+		return fmt.Errorf("at most eight probe targets are allowed")
+	}
+	seen := map[string]bool{}
+	for _, target := range targets {
+		u, err := url.Parse(target)
+		if err != nil || len(target) > 512 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || strings.Contains(target, "#") || seen[target] {
+			return fmt.Errorf("invalid or duplicate HTTPS probe target")
+		}
+		seen[target] = true
+	}
+	return nil
+}
+
+func (p Probe) Validate() error {
+	if err := ValidateProbeTargets([]string{p.Target}); err != nil {
+		return err
+	}
+	if p.Time <= 0 || (p.IP != "" && net.ParseIP(p.IP) == nil) || (p.Status != 0 && (p.Status < 100 || p.Status > 599)) {
+		return fmt.Errorf("invalid probe metadata")
+	}
+	switch p.Error {
+	case "":
+		if p.Status < 200 || p.Status > 399 {
+			return fmt.Errorf("successful probe requires HTTP 200-399")
+		}
+	case "dns", "connect", "tls", "timeout", "http", "request", "read":
+	default:
+		return fmt.Errorf("invalid probe error")
+	}
+	for _, v := range []float64{p.DNSMS, p.TCPMS, p.TLSMS, p.TTFBMS, p.TotalMS} {
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 60000 {
+			return fmt.Errorf("invalid probe timing")
+		}
+	}
+	return nil
+}
+
 type Report struct {
 	Outage   *Outage    `json:"outage,omitempty"`
+	Probes   []Probe    `json:"probes,omitempty"`
 	Version  int        `json:"v"`
 	CPU      float64    `json:"cpu"` // percent, sampled delta
 	Load     [3]float64 `json:"load"`
@@ -84,6 +142,19 @@ func ParsePublicKey(s string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(b), nil
 }
 func (r Report) Validate() error {
+	if len(r.Probes) > 8 {
+		return fmt.Errorf("at most eight probes are allowed")
+	}
+	seen := map[string]bool{}
+	for _, p := range r.Probes {
+		if err := p.Validate(); err != nil {
+			return err
+		}
+		if seen[p.Target] {
+			return fmt.Errorf("duplicate probe target")
+		}
+		seen[p.Target] = true
+	}
 	if r.Outage != nil && (r.Outage.Since <= 0 || r.Outage.Failures < 1) {
 		return fmt.Errorf("invalid outage")
 	}

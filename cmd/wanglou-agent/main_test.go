@@ -108,3 +108,24 @@ func TestBackupInitAndEnroll(t *testing.T) {
 type enrollTransport func(*http.Request) (*http.Response, error)
 
 func (f enrollTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestProbeInitConfiguration(t *testing.T) {
+	for _, value := range []string{"", "https://example.com/robots.txt,https://example.net/health"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "agent.toml")
+		if err := run([]string{"init", "--name", "node", "--server", "https://monitor.example.com", "--key", filepath.Join(dir, "key"), "--config", path, "--state", filepath.Join(dir, "state"), "--probe-targets", value}); err != nil {
+			t.Fatal(err)
+		}
+		c, err := agent.LoadConfig(path)
+		if err != nil || c.ProbeTargets == nil {
+			t.Fatal(c, err)
+		}
+		want := 0
+		if value != "" {
+			want = 2
+		}
+		if len(c.ProbeTargets) != want {
+			t.Fatal(c.ProbeTargets)
+		}
+	}
+}

@@ -12,7 +12,9 @@ import (
 	_ "time/tzdata"
 	"unicode/utf8"
 	"wanglou/internal/localconfig"
+	"wanglou/internal/proto"
 	"wanglou/internal/server/alert"
+	"wanglou/internal/server/mainland"
 )
 
 const defaultConfig = "/etc/wanglou/server.toml"
@@ -29,6 +31,7 @@ type config struct {
 	TrustedProxies                                                               []netip.Prefix
 	NotifyCooldown                                                               time.Duration
 	Alerts                                                                       alert.Config
+	MainlandTargets                                                              []mainland.Target
 }
 
 // Missing configuration files are optional; malformed or unreadable files are
@@ -86,6 +89,29 @@ func loadConfigEnv(path string, environment []string) (config, error) {
 			c.TelegramChatID, err = stringValue()
 		case "listen_plain":
 			c.ListenPlain, err = strconv.ParseBool(value)
+		case "mainland_targets":
+			var values []string
+			if env {
+				if strings.TrimSpace(value) != "" {
+					values = strings.Split(value, ",")
+				}
+			} else {
+				values, err = localconfig.Strings(value)
+			}
+			if err != nil {
+				return err
+			}
+			c.MainlandTargets = nil
+			seen := map[string]bool{}
+			for _, value := range values {
+				name, endpoint, ok := strings.Cut(strings.TrimSpace(value), "=")
+				address, parseErr := netip.ParseAddrPort(endpoint)
+				if !ok || !proto.ValidNode(name) || seen[name] || parseErr != nil || !address.Addr().Is4() || !address.Addr().IsGlobalUnicast() || address.Addr().IsPrivate() || address.Port() == 0 {
+					return fmt.Errorf("mainland_targets requires unique node=public-IPv4:port entries")
+				}
+				seen[name] = true
+				c.MainlandTargets = append(c.MainlandTargets, mainland.Target{Node: name, Address: address})
+			}
 		case "trusted_proxies":
 			var values []string
 			if env {

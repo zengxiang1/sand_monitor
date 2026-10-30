@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+	"wanglou/internal/proto"
 	"wanglou/internal/server/format"
 	"wanglou/internal/server/store"
 )
@@ -31,7 +32,7 @@ import (
 var assets embed.FS
 var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
 
-type Fields struct{ Specs, Usage, Net, Uptime, Availability, Reason bool }
+type Fields struct{ Specs, Usage, Net, Uptime, Availability, Reason, Probes bool }
 type Selection struct {
 	Node   string
 	Public bool
@@ -58,7 +59,7 @@ func Token() string {
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 func DefaultConfig() PublicConfig {
-	return PublicConfig{Title: "服务器状态", Interval: 30, Access: "public", Token: Token(), Fields: Fields{true, true, true, true, true, true}, Nodes: []Selection{}, Announcements: []Announcement{}}
+	return PublicConfig{Title: "服务器状态", Interval: 30, Access: "public", Token: Token(), Fields: Fields{Specs: true, Usage: true, Net: true, Uptime: true, Availability: true, Reason: true, Probes: true}, Nodes: []Selection{}, Announcements: []Announcement{}}
 }
 func (c PublicConfig) Validate() error {
 	if !utf8.ValidString(c.Title) || len([]rune(c.Title)) > 40 || strings.TrimSpace(c.Title) == "" {
@@ -174,16 +175,32 @@ type Availability struct {
 	Pct  string `json:"pct"`
 	Days []Day  `json:"days"`
 }
+
+// MainlandProbe is the public projection of an independent mainland TCP test.
+// Source metadata is limited to carrier and city; destination and provider IDs
+// remain private.
+type MainlandProbe struct {
+	Carrier  string   `json:"carrier"`
+	City     string   `json:"city,omitempty"`
+	Status   string   `json:"status"`
+	Age      string   `json:"age,omitempty"`
+	TCPMS    *float64 `json:"tcp_ms,omitempty"`
+	Rate     string   `json:"success_rate,omitempty"`
+	Sent     *int     `json:"sent,omitempty"`
+	Received *int     `json:"received,omitempty"`
+}
+
 type Node struct {
-	OfflineDuration string        `json:"-"`
-	Name            string        `json:"name"`
-	Status          string        `json:"status"`
-	Specs           *Specs        `json:"specs,omitempty"`
-	Usage           *Usage        `json:"usage,omitempty"`
-	Net             *Net          `json:"net,omitempty"`
-	UptimeDays      *int          `json:"uptime_days,omitempty"`
-	OfflineSince    string        `json:"offline_since,omitempty"`
-	Availability    *Availability `json:"availability,omitempty"`
+	OfflineDuration string           `json:"-"`
+	Name            string           `json:"name"`
+	Status          string           `json:"status"`
+	Specs           *Specs           `json:"specs,omitempty"`
+	Usage           *Usage           `json:"usage,omitempty"`
+	Net             *Net             `json:"net,omitempty"`
+	UptimeDays      *int             `json:"uptime_days,omitempty"`
+	OfflineSince    string           `json:"offline_since,omitempty"`
+	Availability    *Availability    `json:"availability,omitempty"`
+	MainlandProbes  *[]MainlandProbe `json:"mainland_probes,omitempty"`
 }
 type News struct {
 	Time   string `json:"time"`
@@ -213,6 +230,13 @@ func Build(s *store.Store, c PublicConfig, now time.Time) (Document, error) {
 	nodes, err := s.Nodes()
 	if err != nil {
 		return out, err
+	}
+	var mainlandSource store.MainlandSource
+	if c.Fields.Probes {
+		mainlandSource, err = s.MainlandSource()
+		if err != nil {
+			return out, err
+		}
 	}
 	names := map[string]string{}
 	pct := func(used, total float64) int {
@@ -273,6 +297,39 @@ func Build(s *store.Store, c PublicConfig, now time.Time) (Document, error) {
 			days := int(up / 86400)
 			n.UptimeDays = &days
 		}
+		if c.Fields.Probes {
+			mainland, err := s.MainlandProbes(source.Name)
+			if err != nil {
+				return out, err
+			}
+			p := MainlandProbe{Carrier: mainlandSource.Carrier(), City: mainlandSource.City, Status: "empty"}
+			index := slices.IndexFunc(mainland, mainlandSource.Matches)
+			if index >= 0 {
+				sample := mainland[index]
+				p.City, p.Age = sample.City, probeAge(sample.Time, now)
+				switch {
+				case sample.Time == 0:
+				case now.Unix()-sample.Time > int64(proto.ProbeMaxAge/time.Second):
+					p.Status = "stale"
+				case sample.Status == "unavailable":
+					p.Status = "unavailable"
+				case sample.Status == "ok" || sample.Status == "failed":
+					sent, received := sample.Sent, sample.Received
+					p.Status, p.Sent, p.Received = sample.Status, &sent, &received
+					p.Rate = fmt.Sprintf("%.0f%%", float64(received)*100/float64(sent))
+					if sample.Status == "ok" {
+						tcp := math.Round(sample.TCPMS*10) / 10
+						p.TCPMS = &tcp
+						if received < sent {
+							p.Status = "partial"
+							p.Rate = fmt.Sprintf("%.1f%%", float64(received)*100/float64(sent))
+						}
+					}
+				}
+			}
+			mainlandProbes := []MainlandProbe{p}
+			n.MainlandProbes = &mainlandProbes
+		}
 		if c.Fields.Availability {
 			t, err := s.Traffic(source.Name)
 			if err != nil {
@@ -297,6 +354,20 @@ func Build(s *store.Store, c PublicConfig, now time.Time) (Document, error) {
 	sort.SliceStable(out.Announcements, func(i, j int) bool { return out.Announcements[i].Time > out.Announcements[j].Time })
 	return out, nil
 }
+func probeAge(ts int64, now time.Time) string {
+	if ts == 0 {
+		return ""
+	}
+	age := max(int64(0), now.Unix()-ts)
+	if age < 60 {
+		return "刚刚"
+	}
+	if age >= 3600 {
+		return fmt.Sprintf("%d 小时前", age/3600)
+	}
+	return fmt.Sprintf("%d 分钟前", age/60)
+}
+
 func CSS() []byte { b, _ := assets.ReadFile("web/status.css"); return b }
 
 var tmpl = template.Must(template.New("status.html").Funcs(template.FuncMap{
@@ -308,6 +379,10 @@ var tmpl = template.Must(template.New("status.html").Funcs(template.FuncMap{
 		}
 		return "正常"
 	},
+	"mainlandStatus": func(status string) string {
+		return map[string]string{"ok": "成功", "partial": "部分成功", "failed": "连接失败", "unavailable": "探针不可用", "stale": "暂无新数据", "empty": "暂无数据"}[status]
+	},
+	"latency":   func(ms float64) string { return fmt.Sprintf("%.1f ms", ms) },
 	"annStatus": AnnouncementStatus,
 	"rate":      format.Rate,
 	"uptime": func(days int) string {

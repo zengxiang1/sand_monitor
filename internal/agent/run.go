@@ -61,7 +61,10 @@ func Run(ctx context.Context, c Config) error {
 	}
 	ticker := time.NewTicker(c.Interval)
 	defer ticker.Stop()
-	return runLoop(ctx, c, client, collector, ticker.C, Backoff)
+	probeContext, stopProbes := context.WithCancel(ctx)
+	probes := startProbes(probeContext, c.ProbeTargets)
+	defer func() { stopProbes(); <-probes.done }()
+	return runLoop(ctx, c, client, probeSampler{sampler: collector, probes: probes}, ticker.C, Backoff)
 }
 
 type sampler interface {

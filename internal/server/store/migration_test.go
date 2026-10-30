@@ -47,7 +47,7 @@ func TestPhaseOneMigration(t *testing.T) {
 			}
 			defer s.Close()
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 8 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 9 {
 				t.Fatal(got, err)
 			}
 			n, err := s.Node("old")
@@ -146,7 +146,7 @@ func TestRevokedKeysMigration(t *testing.T) {
 				t.Fatal(version, fingerprint, name, at, err)
 			}
 			var got int
-			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 8 {
+			if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&got); err != nil || got != 9 {
 				t.Fatal(version, got, err)
 			}
 		}
@@ -230,7 +230,7 @@ func TestV6DisplayNameAndCooldownMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
+		if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
 			t.Fatal(version, err)
 		}
 		n, err := s.Node("node")
@@ -307,7 +307,7 @@ func TestV7SystemEventsMigration(t *testing.T) {
 		}
 	}
 	var version int
-	if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
+	if err = s.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
 		t.Fatal(version, err)
 	}
 	if pending, err := s.Pending(10); err != nil || len(pending) != 1 || pending[0].ID != 73 {

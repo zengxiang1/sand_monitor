@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -49,7 +50,7 @@ func TestKeyAndConfig(t *testing.T) {
 		t.Fatal(e)
 	}
 	read, e := LoadConfig(path)
-	if e != nil || read != c {
+	if e != nil || !reflect.DeepEqual(read, c) {
 		t.Fatal(read, e)
 	}
 	if e = WriteConfig(path, c, false); e == nil {

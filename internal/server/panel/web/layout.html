@@ -10,6 +10,7 @@
 <a href="/billing" {{if eq .Page "billing"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v14H3z M3 10h18 M7 15h4"/></svg><span>续费与流量</span></a>
 </div>
 <div class="nav-group"><p class="nav-label">设置</p>
+<a href="/mainland" {{if eq .Page "mainland"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18 M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></svg><span>国内探测</span></a>
 <a href="/notify" {{if eq .Page "notify"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4"/></svg><span>通知</span></a>
 <a href="/public" {{if eq .Page "public"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></svg><span>公开页</span></a>
 <a href="/enroll" {{if eq .Page "enroll"}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14 M5 12h14"/></svg><span>接入节点</span></a>
@@ -17,9 +18,9 @@
 <div class="account"><span class="avatar" aria-hidden="true">{{.UserInitials}}</span><div class="account-name"><strong>{{.User}}</strong><small>已通过 TOTP</small></div><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="ghost small">登出</button></form></div>
 </aside>
 <div class="panel-main">
-<header class="topbar"><nav class="breadcrumb" aria-label="面包屑"><a href="/">望楼</a><span aria-hidden="true">/</span>{{if eq .Page "node"}}<a href="{{.NodeLink}}">节点</a><span aria-hidden="true">/</span><span aria-current="page">{{.Node.Label}}</span>{{else}}<span aria-current="page">{{if eq .Page "overview"}}总览{{else if eq .Page "billing"}}续费与流量{{else if eq .Page "notify"}}通知{{else if eq .Page "public"}}公开页{{else if eq .Page "enroll"}}接入节点{{end}}</span>{{end}}</nav><p class="topbar-status"><span class="status-dot ok" aria-hidden="true"></span>{{if .Refresh}}每 5 秒自动刷新{{else}}只读监控 · 无下行通道{{end}}</p></header>
+<header class="topbar"><nav class="breadcrumb" aria-label="面包屑"><a href="/">望楼</a><span aria-hidden="true">/</span>{{if eq .Page "node"}}<a href="{{.NodeLink}}">节点</a><span aria-hidden="true">/</span><span aria-current="page">{{.Node.Label}}</span>{{else}}<span aria-current="page">{{if eq .Page "overview"}}总览{{else if eq .Page "billing"}}续费与流量{{else if eq .Page "mainland"}}国内探测{{else if eq .Page "notify"}}通知{{else if eq .Page "public"}}公开页{{else if eq .Page "enroll"}}接入节点{{end}}</span>{{end}}</nav><p class="topbar-status"><span class="status-dot ok" aria-hidden="true"></span>{{if .Refresh}}每 5 秒自动刷新{{else}}只读监控 · 无下行通道{{end}}</p></header>
 <main id="panel-content" {{if .Refresh}}data-refresh="true"{{end}}>{{template "content" .}}</main>
-<footer>这个面板只读取节点主动上报的数据，无法连接、登录或控制任何服务器。</footer>
+<footer>监控数据来自节点签名上报与第三方探测；面板不提供远程登录或命令执行。</footer>
 </div></div>{{end}}</body></html>{{end}}
 {{define "login"}}
 <section class="login-brand" aria-label="望楼">
@@ -54,7 +55,7 @@
 </section>
 {{end}}
 
-{{define "content"}}<span hidden data-panel-refresh="{{.Refresh}}"></span>{{if eq .Page "login"}}{{template "login" .}}{{else if eq .Page "overview"}}{{template "overview" .}}{{else if eq .Page "node"}}{{template "node" .}}{{else if eq .Page "billing"}}{{template "billing" .}}{{else if eq .Page "notify"}}{{template "notify" .}}{{else if eq .Page "public"}}{{template "public" .}}{{else if eq .Page "enroll"}}{{template "enroll" .}}{{end}}{{end}}
+{{define "content"}}<span hidden data-panel-refresh="{{.Refresh}}"></span>{{if eq .Page "login"}}{{template "login" .}}{{else if eq .Page "overview"}}{{template "overview" .}}{{else if eq .Page "node"}}{{template "node" .}}{{else if eq .Page "billing"}}{{template "billing" .}}{{else if eq .Page "mainland"}}{{template "mainland-settings" .}}{{else if eq .Page "notify"}}{{template "notify" .}}{{else if eq .Page "public"}}{{template "public" .}}{{else if eq .Page "enroll"}}{{template "enroll" .}}{{end}}{{end}}
 
 {{define "node-label"}}{{if .DisplayName}}{{.DisplayName}} <span class="node-identity">· {{.Name}}</span>{{else}}{{.Name}}{{end}}{{end}}
 {{define "event-label"}}{{if not .Node}}主控{{else if .DisplayName}}{{.DisplayName}} <span class="node-identity">· {{.Node}}</span>{{else}}{{.Node}}{{end}}{{end}}

@@ -1,6 +1,5 @@
 // Package localconfig reads the deliberately small flat TOML configuration
-// used by both binaries: quoted strings, numbers, booleans and a string array
-// for trusted_proxies.
+// used by both binaries: quoted strings, numbers, booleans and string arrays.
 // Unsupported syntax and unknown keys are rejected, never silently ignored.
 package localconfig
 
@@ -74,8 +73,7 @@ func String(v string) (string, error) {
 	return strconv.Unquote(v)
 }
 
-// Strings supports the one flat string-array setting (trusted proxy CIDRs).
-// Values cannot contain commas; no other array syntax is accepted.
+// Strings supports flat quoted string arrays, including commas in URLs.
 func Strings(value string) ([]string, error) {
 	value = strings.TrimSpace(value)
 	if len(value) < 2 || value[0] != '[' || value[len(value)-1] != ']' {
@@ -85,18 +83,36 @@ func Strings(value string) ([]string, error) {
 	if inner == "" {
 		return []string{}, nil
 	}
-	parts := strings.Split(inner, ",")
 	out := []string{}
-	for i, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" && i == len(parts)-1 {
-			continue
+	for inner != "" {
+		if inner[0] != '"' && inner[0] != '\'' {
+			return nil, fmt.Errorf("expected quoted string")
 		}
-		s, err := String(p)
+		quote, end := inner[0], 1
+		for end < len(inner) {
+			if inner[end] == quote {
+				break
+			}
+			if quote == '"' && inner[end] == '\\' {
+				end++
+			}
+			end++
+		}
+		if end >= len(inner) {
+			return nil, fmt.Errorf("unterminated string")
+		}
+		s, err := String(inner[:end+1])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, s)
+		inner = strings.TrimSpace(inner[end+1:])
+		if inner != "" {
+			if inner[0] != ',' {
+				return nil, fmt.Errorf("expected comma between strings")
+			}
+			inner = strings.TrimSpace(inner[1:])
+		}
 	}
 	return out, nil
 }

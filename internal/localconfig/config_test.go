@@ -37,6 +37,9 @@ func TestStringArray(t *testing.T) {
 	}{
 		{`["172.30.0.0/24", '2001:db8::/32']`, 2, true},
 		{`[]`, 0, true}, {`["172.30.0.0/24",]`, 1, true},
+		{`["https://example.com/a,b", 'https://example.com/c,d']`, 2, true},
+		{`["https://example.com/\"a,b", "next"]`, 2, true},
+		{`["first" "second"]`, 0, false}, {`["first",,]`, 0, false},
 		{`"172.30.0.0/24"`, 0, false}, {`[172.30.0.0/24]`, 0, false},
 		{`[,"172.30.0.0/24"]`, 0, false}, {`["unterminated]`, 0, false},
 	} {

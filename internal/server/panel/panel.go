@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"database/sql"
 	"embed"
@@ -21,6 +22,7 @@ import (
 	"wanglou/internal/server/alert"
 	"wanglou/internal/server/eventtext"
 	"wanglou/internal/server/ingest"
+	"wanglou/internal/server/mainland"
 	status "wanglou/internal/server/public"
 	"wanglou/internal/server/requestip"
 	"wanglou/internal/server/store"
@@ -51,6 +53,7 @@ type Config struct {
 	PublicDir, PublicURL, HeartbeatURL string
 	HeartbeatStatus                    func(time.Time) string
 	Exporter                           *status.Exporter
+	MainlandLocations                  func(context.Context) ([]mainland.LocationOption, error)
 }
 type route struct {
 	pattern      string
@@ -59,6 +62,7 @@ type route struct {
 }
 
 var routes = []route{
+	{"GET /mainland", true, false, "mainland"}, {"POST /mainland", false, false, "mainland"},
 	{"GET /notify", true, false, "notify"}, {"POST /notify/telegram", false, false, "notify-set"}, {"POST /notify/telegram/disable", false, false, "notify-disable"}, {"POST /notify/telegram/test", false, false, "notify-test"},
 	{"GET /billing", true, false, "billing"}, {"POST /billing/{name}", false, false, "billing"}, {"POST /billing/{name}/renewed", false, false, "billing"},
 	{"GET /public", true, false, "public"}, {"POST /public", false, false, "public"}, {"POST /public/token", false, false, "public-token"}, {"POST /public/announcements", false, false, "announcement"}, {"POST /public/announcements/{id}/delete", false, false, "announcement-delete"}, {"GET /public/preview", true, false, "public-preview"},
@@ -98,6 +102,9 @@ type Handler struct {
 }
 
 func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
+	if c.MainlandLocations == nil {
+		c.MainlandLocations = (&mainland.Loop{}).Locations
+	}
 	if c.MemoryThreshold == 0 {
 		c.MemoryThreshold = 90
 	}
@@ -204,6 +211,8 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 				h.login(w, r)
 			case "logout":
 				h.logout(w, r, sess)
+			case "mainland":
+				h.mainlandSettings(w, r, sess)
 			case "notify", "notify-set", "notify-disable", "notify-test":
 				h.notify(w, r, sess, entry.action)
 			case "billing":

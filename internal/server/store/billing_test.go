@@ -331,7 +331,7 @@ func TestPhaseThreeMigrationAndRetention(t *testing.T) {
 	}
 	defer up.Close()
 	var version int
-	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
+	if err = up.DB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
 		t.Fatal(version, err)
 	}
 	var detail string

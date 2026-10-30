@@ -18,6 +18,7 @@ import (
 	"wanglou/internal/server/alert"
 	"wanglou/internal/server/heartbeat"
 	"wanglou/internal/server/ingest"
+	"wanglou/internal/server/mainland"
 	"wanglou/internal/server/panel"
 	"wanglou/internal/server/peer"
 	status "wanglou/internal/server/public"
@@ -135,6 +136,10 @@ func run(args []string) error {
 	worker := func(fn func()) { wg.Add(1); go func() { defer wg.Done(); fn() }() }
 	worker(func() { s.RunCleanup(ctx) })
 	worker(func() { dispatcher.Run(ctx) })
+	if len(c.MainlandTargets) != 0 {
+		mainlandProbes := &mainland.Loop{Store: s, Targets: c.MainlandTargets}
+		worker(func() { mainlandProbes.Run(ctx) })
+	}
 	if c.PeerURL != "" {
 		worker(func() { peerCheck.Run(ctx) })
 	}

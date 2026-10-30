@@ -54,9 +54,10 @@ same signing, ingestion and database path. Stop either process with Ctrl-C.
 Both configuration files use flat TOML keys. Supported syntax: quoted
 single-line strings (including literal single-quoted strings), decimal numbers,
 booleans, blank lines and `#` comments. Unknown or duplicate keys and unsupported
-syntax are errors. The only array setting is `trusted_proxies`, a single-line
-array of quoted CIDRs. Tables, other arrays, multiline strings and TOML date types
-are not supported. Configuration is read locally, once at startup.
+syntax are errors. Array settings are `trusted_proxies` (quoted CIDRs), server
+`mainland_targets` (quoted `node=IPv4:port` entries), and agent `probe_targets`
+(quoted HTTPS URLs), all single-line arrays. Tables, other arrays,
+multiline strings and TOML date types are not supported. Configuration is read locally, once at startup.
 
 Agent defaults: `/etc/wanglou/agent.toml`, `/etc/wanglou/node.key`, 5 seconds.
 The generated configuration contains:
@@ -139,6 +140,54 @@ identities are stable hashes of their destination settings, independent of
 configuration order. As with any external HTTP delivery, a crash after remote
 acceptance but before the receipt commits, or an ambiguous transport failure,
 can still cause a duplicate; this is not a transactional exactly-once protocol. No network calls occur while the ingestion transaction is held.
+
+## 中国大陆 → 服务器 TCP 连接
+
+服务器可通过 [Globalping 官方 API](https://globalping.io/docs/api.globalping.io)
+每小时测量中国大陆到现有服务器的 TCP 建连延迟和连接成功率，无需部署大陆主机或创建账号。
+在 server.toml 中显式配置目的节点与其公网 IPv4、端口；以下地址仅为示例，请替换为实际地址：
+
+```toml
+mainland_targets = ["hk-01=203.0.113.10:22", "us-01=198.51.100.20:331"]
+```
+
+默认不配置或 `mainland_targets = []` 时关闭；环境变量
+`WANGLOU_MAINLAND_TARGETS=hk-01=公网IPv4:22,us-01=公网IPv4:331`
+可覆盖配置，空值关闭。节点名须已注册且未吊销，否则该目标跳过。配置变更后重启接收端。
+目标必须是字面公网 IPv4 和 1–65535 的端口；无需开放额外 HTTP 服务，现有可达 SSH 端口即可。
+测试只建立 TCP 连接，不登录 SSH，也不测试下载带宽。
+
+登录面板，在「设置 → 国内探测」中选择运营商和城市。默认中国联通、城市自动匹配；
+也可选择中国电信或中国移动。城市列表来自 Globalping 当前在线的中国大陆探针，并显示在线数量。
+选择的是城市线路，不是固定机器；没有匹配探针时显示不可用，不自动切换城市或运营商。
+保存到当前主控的数据库，下个到期批次生效，无需重启或升级 agent；主备主控分别保存设置，不自动同步。
+保存不会立即发起测量或重置每小时的计时。目录服务不可用时，可以保留已有选择或使用城市自动匹配。
+
+每轮先按所选运营商和城市选择一个中国大陆探针，后续目标通过首个测量 ID 复用该探针，
+每个目标尝试建立 3 次 TCP 连接；不再并排展示三家运营商。显示服务实际返回的城市、网络、ASN、平均成功建连耗时
+以及成功次数 / 尝试次数；这是 TCP 连接成功率，不是 IP 层丢包率或 SSH 登录成功率。
+探针由 Globalping 尽力分配；选择自动城市时城市可能变化，同一城市内的具体探针也可能变化，不能代表整个运营商的全国网络。
+首个测量未创建成功时，其余目标显示不可用，不重新选点；复用探针失败、服务故障或数据异常时也显示不可用，不回退到境外探针，
+也不将第三方服务故障判为目的服务器失联。数据超过 75 分钟显示暂无新数据。
+此功能仅保留每个节点最新一轮，不提供历史曲线，不触发节点或连接异常告警。
+
+接收端启动后执行到期检测；每轮开始前持久化时间戳，同一接收端重启不会在一小时内重复调用。
+单次 HTTP 最多 10 秒，测量响应最多 1 MiB、在线目录响应最多 16 MiB；每 2 秒按 ETag 轮询，单个目标最多等待 60 秒，
+失败不立即重试。双接收端可独立执行；六个目标共用一个探针时，每个接收端每小时
+6 个 probe tests，低于 Globalping 公布的免认证每 IP 每小时 250 次额度。
+服务是公共平台，[官方说明](https://github.com/jsdelivr/globalping#things-to-keep-in-mind)
+指出目标与测量结果可公开访问；这里测量的是显式配置的公网服务器地址。
+
+## 旧版出站探测兼容
+
+当前管理面板和公开页只展示国内第三方探针到服务器的 TCP 测量。
+TCP 建连耗时已经包含往返通信，但不能拆分为上行、下行两个独立的单向延迟。
+不再默认请求百度、腾讯云、阿里云；省略 agent 的 `probe_targets` 或设置为
+`probe_targets = []` 都不会发起出站站点探测。已有显式目标配置需改为空数组并重启 agent。
+CPU、内存、网络和在线状态的普通上报不受影响。
+
+为兼容旧 agent，服务端仍能接收旧探测字段；显式配置目标的旧功能代码仍保留。
+旧探测记录继续按原来的七天保留期清理，不在管理页、未登录首页、预览或公开 JSON 中展示。
 
 ## Linux deployment
 
@@ -479,6 +528,14 @@ Telegram 有两种配置方式：在面板“通知”（`/notify`）填写 bot 
 
 在“公开页”中选择节点、填写公开显示名和字段开关，保存草稿后可预览；点击“保存并发布”立即导出。新节点默认不公开。公告的编辑、删除和更换链接口令都先改草稿，发布后才影响访客。
 
+“国内访问”开关控制国内第三方探针到节点的 TCP 平均建连延迟、成功次数 / 尝试次数、
+探针运营商与城市，以及探测距今时间。未登录首页、预览和静态导出使用同一设置。
+目标 IP、端口、完整 URL、第三方测量 ID 和原始诊断不公开。
+结果只按探测时间判断是否新鲜，目的节点的 agent 失联不会抹掉独立的第三方测量。
+样本超过 75 分钟显示“暂无新数据”；服务或探针不可用不会显示成连接成功率 0%。
+字段关闭时，整个国内访问区块和 JSON 数据均省略。新建公开配置默认开启此字段，
+旧版 `Fields.Probes` 配置值继续沿用，但不再导出旧站点探测数据。
+
 配置 `public_dir` / `WANGLOU_PUBLIC_DIR` 为可写目录；`public_url` / `WANGLOU_PUBLIC_URL` 为展示用的 HTTPS 地址，例如 `https://status.example.com`。未配置目录时仍可编辑和预览。导出的公开页由独立静态服务器提供，接收端不提供公开页面，两个端口均不提供公开 JSON 路由。Docker Compose 已挂载 `status_public` 卷，Caddy 只读提供其中的文件；`STATUS_DOMAIN` 默认 `status.localhost`，正式使用时改为自己的域名。
 
 导出文件只有 `index.html`、`status.json` 和 `status.css`，不含 IP、内部节点名、服务商、账单、备注、登录信息或身份信息。使用白名单结构生成，无 JavaScript 或外部资源；字段关闭时也从 JSON 省略。可以通过 rsync 或对象存储把这三个静态文件同步到另一台机器；目标机器不需要面板账号、接收端或任何密钥。公开页被攻破只能篡改页面显示。
@@ -528,7 +585,7 @@ Telegram 有两种配置方式：在面板“通知”（`/notify`）填写 bot 
 
 agent 每周期只采样一次，两端独立发送、独立退避，忙碌目标跳过当次指标，不积压。登录游标分别持久化在 `<state_file>.logins.json` 和 `<state_file>.backup.logins.json`，各自在收到 204 后推进；一端恢复后补报它错过的登录，另一端不会重复收到。首次启用备用端时只建立登录基线，不发送历史记录。两个目标共享持久化 seq，每次发送独立签名，协议仍为 `wanglou-v1`。
 
-备用端在主端健康时仍会独立告警：被攻破的主端可以继续返回正常健康状态、同时吞掉告警，因此不能根据主端健康检查静默备用端。用 `alert_scope = "security"` 只推送失联、恢复、新 IP 登录和二进制变化，资源与账单事件仍记录并标为已处理；默认 `all` 推送全部。用 `instance_name`（最多 16 个字符，默认“望楼”）区分 Telegram 前缀和 Webhook 的 `instance` 字段。对端不可达和恢复通知、主控中断和主控恢复系统事件不受告警范围影响。
+备用端在主端健康时仍会独立告警：被攻破的主端可以继续返回正常健康状态、同时吞掉告警，因此不能根据主端健康检查静默备用端。用 `alert_scope = "security"` 只推送失联、恢复、新 IP 登录、二进制变化和旧版出站探测的失败 / 恢复，资源与账单事件仍记录并标为已处理；默认 `all` 推送全部。用 `instance_name`（最多 16 个字符，默认“望楼”）区分 Telegram 前缀和 Webhook 的 `instance` 字段。对端不可达和恢复通知、主控中断和主控恢复系统事件不受告警范围影响。
 
 ## 第三方资源
 

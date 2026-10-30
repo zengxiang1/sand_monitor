@@ -104,8 +104,8 @@ func (h *Handler) public(w http.ResponseWriter, r *http.Request, sess session, a
 			c.Title = f.Get("title")
 			c.Interval, err = strconv.Atoi(f.Get("interval"))
 			c.Access = f.Get("access")
-			c.Fields = status.Fields{Specs: f.Get("specs") == "true", Usage: f.Get("usage") == "true", Net: f.Get("net") == "true", Uptime: f.Get("uptime") == "true", Availability: f.Get("availability") == "true", Reason: f.Get("reason") == "true"}
-			for _, key := range []string{"specs", "usage", "net", "uptime", "availability", "reason"} {
+			c.Fields = status.Fields{Specs: f.Get("specs") == "true", Usage: f.Get("usage") == "true", Net: f.Get("net") == "true", Uptime: f.Get("uptime") == "true", Availability: f.Get("availability") == "true", Reason: f.Get("reason") == "true", Probes: f.Get("probes") == "true"}
+			for _, key := range []string{"specs", "usage", "net", "uptime", "availability", "reason", "probes"} {
 				if value := f.Get(key); value != "" && value != "true" {
 					err = fmt.Errorf("字段开关无效")
 				}

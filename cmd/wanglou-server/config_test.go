@@ -312,3 +312,31 @@ func TestNotifyCooldownConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestMainlandTargetsConfiguration(t *testing.T) {
+	c, err := loadConfigEnv("", nil)
+	if err != nil || len(c.MainlandTargets) != 0 {
+		t.Fatal("mainland probes should default off", c.MainlandTargets, err)
+	}
+	path := filepath.Join(t.TempDir(), "server.toml")
+	if err = os.WriteFile(path, []byte(`mainland_targets = ["hk-01=8.8.8.8:22", "us-01=1.1.1.1:331"]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = loadConfigEnv(path, nil)
+	if err != nil || len(c.MainlandTargets) != 2 || c.MainlandTargets[0].Node != "hk-01" || c.MainlandTargets[0].Address != netip.MustParseAddrPort("8.8.8.8:22") || c.MainlandTargets[1].Address.Port() != 331 {
+		t.Fatal(c.MainlandTargets, err)
+	}
+	c, err = loadConfigEnv(path, []string{"WANGLOU_MAINLAND_TARGETS=other=9.9.9.9:443"})
+	if err != nil || len(c.MainlandTargets) != 1 || c.MainlandTargets[0].Node != "other" {
+		t.Fatal("environment override", c.MainlandTargets, err)
+	}
+	c, err = loadConfigEnv(path, []string{"WANGLOU_MAINLAND_TARGETS="})
+	if err != nil || len(c.MainlandTargets) != 0 {
+		t.Fatal("explicit disable", c.MainlandTargets, err)
+	}
+	for _, value := range []string{"node=example.com:22", "node=[2001:4860:4860::8888]:22", "node=127.0.0.1:22", "node=10.0.0.1:22", "node=224.0.0.1:22", "node=0.0.0.0:22", "node=8.8.8.8:0", "node=8.8.8.8:65536", "node=8.8.8.8", "node=8.8.8.8:22/extra", "bad/name=8.8.8.8:22", "node=8.8.8.8:22,node=1.1.1.1:22"} {
+		if _, err = loadConfigEnv("", []string{"WANGLOU_MAINLAND_TARGETS=" + value}); err == nil {
+			t.Fatal("accepted invalid mainland target", value)
+		}
+	}
+}

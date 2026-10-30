@@ -8,12 +8,12 @@ import (
 	"wanglou/internal/server/store"
 )
 
-func (d *Dispatcher) prepare(event store.Event, notifiers []Notifier) (store.Event, error) {
+func (d *Dispatcher) prepareIndividual(event store.Event, notifiers []Notifier) (store.Event, error) {
 	now := time.Now()
 	if d.Now != nil {
 		now = d.Now()
 	}
-	if len(notifiers) == 0 || d.Scope == "security" && event.Kind != "offline" && event.Kind != "recovered" && event.Kind != "login_new_ip" && event.Kind != "bin_changed" && event.Kind != "flapping" && event.Kind != "receiver_down" && event.Kind != "receiver_up" {
+	if len(notifiers) == 0 || d.Scope == "security" && event.Kind != "offline" && event.Kind != "recovered" && event.Kind != "login_new_ip" && event.Kind != "bin_changed" && event.Kind != "flapping" && event.Kind != "receiver_down" && event.Kind != "receiver_up" && event.Kind != "probe_down" && event.Kind != "probe_up" {
 		event.Notified = true
 		return event, d.Store.MarkNotified(event.ID)
 	}
@@ -57,6 +57,8 @@ func (d *Dispatcher) prepare(event store.Event, notifiers []Notifier) (store.Eve
 					key = "login:" + ip
 				}
 			}
+		case "probe_down", "probe_up":
+			// Probe events carry their exact target key at creation.
 		case "resource":
 			if key == "" {
 				if event.Detail == "memory" || strings.HasPrefix(event.Detail, "内存") {
@@ -79,10 +81,16 @@ func (d *Dispatcher) prepare(event store.Event, notifiers []Notifier) (store.Eve
 			return err
 		}
 		event.Suppressed = expires > now.UnixNano()
-		if event.Kind == "recovered" {
+		if event.Kind == "recovered" || event.Kind == "probe_up" {
 			// A recovery follows its offline event: sent when that was sent, merged when it was merged.
 			var paired bool
-			if err := tx.QueryRow(`SELECT coalesce((SELECT suppressed FROM events WHERE node=? AND kind='offline' AND id<? ORDER BY id DESC LIMIT 1),0)`, event.Node, event.ID).Scan(&paired); err != nil {
+			query := `SELECT coalesce((SELECT suppressed FROM events WHERE node=? AND kind='offline' AND id<? ORDER BY id DESC LIMIT 1),0)`
+			args := []any{event.Node, event.ID}
+			if event.Kind == "probe_up" {
+				query = `SELECT coalesce((SELECT suppressed FROM events WHERE node=? AND kind='probe_down' AND cooldown_key=? AND id<? ORDER BY id DESC LIMIT 1),0)`
+				args = []any{event.Node, key, event.ID}
+			}
+			if err := tx.QueryRow(query, args...).Scan(&paired); err != nil {
 				return err
 			}
 			event.Suppressed, event.Notified = paired, paired
@@ -105,7 +113,7 @@ func (d *Dispatcher) prepare(event store.Event, notifiers []Notifier) (store.Eve
 			}
 		} else {
 			var count int
-			if err := tx.QueryRow(`SELECT count(*) FROM events WHERE node=? AND cooldown_key=? AND kind<>'recovered' AND suppressed=1 AND id<? AND id>coalesce((SELECT max(id) FROM events WHERE node=? AND cooldown_key=? AND kind<>'recovered' AND cooldown_decided=1 AND suppressed=0 AND id<?),0)`, event.Node, key, event.ID, event.Node, key, event.ID).Scan(&count); err != nil {
+			if err := tx.QueryRow(`SELECT count(*) FROM events WHERE node=? AND cooldown_key=? AND kind NOT IN ('recovered','probe_up') AND suppressed=1 AND id<? AND id>coalesce((SELECT max(id) FROM events WHERE node=? AND cooldown_key=? AND kind NOT IN ('recovered','probe_up') AND cooldown_decided=1 AND suppressed=0 AND id<?),0)`, event.Node, key, event.ID, event.Node, key, event.ID).Scan(&count); err != nil {
 				return err
 			}
 			if count > 0 {

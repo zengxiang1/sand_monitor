@@ -166,7 +166,7 @@ func (e *Engine) Report(tx *sql.Tx, n store.Node, r proto.Report, now time.Time)
 		}
 
 	}
-	return nil
+	return e.probes(tx, n, r.Probes, now)
 }
 func (e *Engine) CheckOffline(now time.Time) error {
 	if now.Sub(e.StartedAt) < 3*e.Config.Interval+time.Minute {

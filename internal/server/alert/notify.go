@@ -173,7 +173,7 @@ func (d *Dispatcher) Deliver(ctx context.Context, event store.Event) error {
 	}
 	var err error
 	event, err = d.prepare(event, notifiers)
-	if err != nil || event.Notified {
+	if err != nil || event.Notified || event.Deferred {
 		return err
 	}
 	pending, err := d.pendingNotifiers(event, notifiers)
@@ -253,7 +253,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 					log.Printf("notification queue: %v", err)
 					continue
 				}
-				if event.Notified {
+				if event.Notified || event.Deferred {
 					continue
 				}
 				pending, err := d.pendingNotifiers(event, notifiers)

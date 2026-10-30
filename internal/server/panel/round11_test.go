@@ -28,7 +28,7 @@ func TestPanelShellAndRefreshFragments(t *testing.T) {
 			}
 		}
 		navigation := regexp.MustCompile(`(?s)<nav class="sidebar-nav".*?</nav>`).FindString(body)
-		if strings.Count(navigation, `aria-current="page"`) != 1 || strings.Count(navigation, `<a `) != 6 || !strings.Contains(navigation, ">监控</p>") || !strings.Contains(navigation, ">设置</p>") {
+		if strings.Count(navigation, `aria-current="page"`) != 1 || strings.Count(navigation, `<a `) != 7 || !strings.Contains(navigation, ">监控</p>") || !strings.Contains(navigation, ">设置</p>") {
 			t.Error(path, "incorrect active or grouped navigation", navigation)
 		}
 		for _, tag := range regexp.MustCompile(`<svg\b[^>]*>`).FindAllString(navigation, -1) {

@@ -21,6 +21,7 @@ type Config struct {
 	ProcRoot, RootFS, WtmpPath                 string
 	Interval                                   time.Duration
 	InsecureHTTP                               bool
+	ProbeTargets                               []string
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -43,6 +44,8 @@ func LoadConfig(path string) (Config, error) {
 			c.RootFS, e = localconfig.String(v)
 		case "wtmp_path":
 			c.WtmpPath, e = localconfig.String(v)
+		case "probe_targets":
+			c.ProbeTargets, e = localconfig.Strings(v)
 		case "interval":
 			var s string
 			s, e = localconfig.String(v)
@@ -62,6 +65,9 @@ func LoadConfig(path string) (Config, error) {
 	return c, c.Validate()
 }
 func (c Config) Validate() error {
+	if err := proto.ValidateProbeTargets(c.ProbeTargets); err != nil {
+		return err
+	}
 	if !proto.ValidNode(c.Name) || c.Key == "" || c.StateFile == "" || c.Interval <= 0 {
 		return fmt.Errorf("invalid name, key, state_file or interval")
 	}
@@ -105,6 +111,13 @@ func WriteConfig(path string, c Config, force bool) error {
 		return e
 	}
 	_, e = fmt.Fprintf(f, "name = %q\nserver = %q\nbackup_server = %q\nkey = %q\nstate_file = %q\ninterval = %q\ninsecure_http = %t\nproc_root = %q\nroot_fs = %q\nwtmp_path = %q\n", c.Name, c.Server, c.BackupServer, c.Key, c.StateFile, c.Interval.String(), c.InsecureHTTP, c.ProcRoot, c.RootFS, c.WtmpPath)
+	if e == nil && c.ProbeTargets != nil {
+		values := make([]string, len(c.ProbeTargets))
+		for i, target := range c.ProbeTargets {
+			values[i] = strconv.Quote(target)
+		}
+		_, e = fmt.Fprintf(f, "probe_targets = [%s]\n", strings.Join(values, ", "))
+	}
 	ce := f.Close()
 	if e != nil {
 		return e
