@@ -26,6 +26,58 @@ func billingStore(t *testing.T) *Store {
 	}
 	return s
 }
+
+func TestThreeYearRenewalAndMonthlyTraffic(t *testing.T) {
+	s := billingStore(t)
+	b := DefaultBilling("node")
+	b.Expiry, b.Cycle, b.Price = "2024-02-29", "three_year", "88"
+	if err := b.Validate(nil); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2024, 3, 28, 12, 0, 0, 0, time.UTC)
+	if err := s.SaveBilling(b, nil, now, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(`UPDATE traffic SET used_tx='99',used_rx='88',adjust='10'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, expiry := range []string{"2027-02-28", "2030-02-28", "2033-02-28", "2036-02-29"} {
+		if err := s.Renew("node", now, "admin", ""); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.Billing("node")
+		if err != nil || got.Expiry != expiry || got.AnchorDay != 29 {
+			t.Fatal(got, err)
+		}
+	}
+	tr, err := s.Traffic("node")
+	if err != nil || tr.CycleStart != "2024-02-29" || tr.UsedTX != 99 || tr.UsedRX != 88 {
+		t.Fatal("manual renewal changed traffic", tr, err)
+	}
+	reset := time.Date(2024, 3, 29, 0, 0, 0, 0, time.UTC)
+	if err := s.CheckReminders(reset); err != nil {
+		t.Fatal(err)
+	}
+	tr, err = s.Traffic("node")
+	if err != nil || tr.CycleStart != "2024-03-29" || tr.UsedTX != 0 || tr.UsedRX != 0 || tr.Adjust != "0" {
+		t.Fatal("three-year billing must still reset traffic monthly", tr, err)
+	}
+	saved, err := s.Billing("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := NextReset(reset, &saved).Format("2006-01-02"); got != "2024-04-29" {
+		t.Fatal(got)
+	}
+	for _, cycle := range []string{"once", "unknown"} {
+		if got := CycleMonths(cycle); got != 0 {
+			t.Fatal(cycle, got)
+		}
+		if got := Advance("2024-02-29", cycle, 29, time.UTC); got != "2024-02-29" {
+			t.Fatal(cycle, got)
+		}
+	}
+}
 func TestTrafficAccounting(t *testing.T) {
 	s := billingStore(t)
 	loc, _ := time.LoadLocation("Asia/Shanghai")

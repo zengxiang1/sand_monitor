@@ -36,6 +36,7 @@ type scheduleRow struct {
 	Date, Node, Text, State, DisplayName string
 }
 type billingPage struct {
+	Budget    store.Budget
 	Today     string
 	Rows      []billingRow
 	Editor    *billingEditor
@@ -45,13 +46,17 @@ type billingPage struct {
 	Due, High []billingRow
 }
 
-var cycleLabels = map[string]string{"month": "月付", "quarter": "季付", "half": "半年付", "year": "年付", "once": "一次性"}
+var cycleLabels = map[string]string{"month": "月付", "quarter": "季付", "half": "半年付", "year": "年付", "three_year": "三年付", "once": "一次性"}
 var directionLabels = map[string]string{"both": "上下行合计", "out": "只算上行", "in": "只算下行", "max": "取两者中较大的"}
 
 func (h *Handler) billingData() (billingPage, error) {
 	now := h.Now().In(h.Store.Location)
 	out := billingPage{Today: now.Format("2006-01-02"), Stats: []billingStat{{Label: "7 天内到期"}, {Label: "流量超过 80%"}, {Label: "30 天内要续费"}, {Label: "未来 7 天提醒"}}}
 	nodes, err := h.Store.Nodes()
+	if err != nil {
+		return out, err
+	}
+	out.Budget, err = h.Store.Budget(now)
 	if err != nil {
 		return out, err
 	}
@@ -387,4 +392,31 @@ func (h *Handler) billing(w http.ResponseWriter, r *http.Request, sess session) 
 		data.Success = "已保存，提醒已按新规则重新排期"
 	}
 	h.render(w, r, "billing", data, status)
+}
+
+// budgetReason describes why a node cannot contribute to a particular estimate.
+func budgetReason(reason, cycle string) string {
+	if reason == "missing_price" && cycle == "once" {
+		return "账单信息待补，请补充价格并确认续费周期"
+	}
+	switch reason {
+	case "missing_billing", "missing_price":
+		return "账单信息待补"
+	case "invalid_price":
+		return "价格无效，账单信息待补"
+	case "unsupported_currency":
+		return "币种待确认"
+	case "unsupported_cycle":
+		return "续费周期待确认"
+	case "once":
+		return "一次性费用，不计入持续成本"
+	case "missing_expiry":
+		return "到期日待补"
+	case "invalid_expiry":
+		return "到期日无效"
+	case "overdue_expiry":
+		return "到期日已过，待确认"
+	default:
+		return ""
+	}
 }

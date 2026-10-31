@@ -83,7 +83,7 @@ func (b Billing) Validate(channels []string) error {
 			return fmt.Errorf("到期日格式无效")
 		}
 	}
-	if !slices.Contains([]string{"month", "quarter", "half", "year", "once"}, b.Cycle) || !slices.Contains([]string{"CNY", "USD", "EUR"}, b.Currency) || b.Price != "" && !pricePattern.MatchString(b.Price) {
+	if !slices.Contains([]string{"month", "quarter", "half", "year", "three_year", "once"}, b.Cycle) || !slices.Contains([]string{"CNY", "USD", "EUR"}, b.Currency) || b.Price != "" && !pricePattern.MatchString(b.Price) {
 		return fmt.Errorf("续费周期、币种或价格无效")
 	}
 	if b.QuotaGB < 0 || b.QuotaGB > 10000000 || b.ResetDay < 0 || b.ResetDay > 28 || !slices.Contains([]string{"both", "out", "in", "max"}, b.Direction) {
@@ -193,12 +193,19 @@ func AddMonths(t time.Time, months, anchorDay int) time.Time {
 	last := first.AddDate(0, 1, -1).Day()
 	return time.Date(first.Year(), first.Month(), min(anchorDay, last), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), t.Location())
 }
+
+// CycleMonths returns the number of calendar months in a recurring billing cycle.
+// One-time and unknown cycles return zero.
+func CycleMonths(cycle string) int {
+	return map[string]int{"month": 1, "quarter": 3, "half": 6, "year": 12, "three_year": 36}[cycle]
+}
 func Advance(expiry, cycle string, anchorDay int, loc *time.Location) string {
 	t, err := time.ParseInLocation("2006-01-02", expiry, loc)
-	if err != nil || cycle == "once" {
+	months := CycleMonths(cycle)
+	if err != nil || months == 0 {
 		return expiry
 	}
-	return AddMonths(t, map[string]int{"month": 1, "quarter": 3, "half": 6, "year": 12}[cycle], anchorDay).Format("2006-01-02")
+	return AddMonths(t, months, anchorDay).Format("2006-01-02")
 }
 func (b Billing) Anchor() int {
 	if b.AnchorDay >= 1 && b.AnchorDay <= 31 {
@@ -420,7 +427,7 @@ func (s *Store) Renew(node string, now time.Time, user, ip string) error {
 		if err != nil {
 			return err
 		}
-		if b.Expiry == "" || b.Cycle == "once" {
+		if b.Expiry == "" || CycleMonths(b.Cycle) == 0 {
 			return fmt.Errorf("没有可续费的周期")
 		}
 		expiry := Advance(b.Expiry, b.Cycle, b.Anchor(), s.Location)

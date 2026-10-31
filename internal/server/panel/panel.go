@@ -128,7 +128,7 @@ func New(s *store.Store, ing *ingest.Handler, c Config) *Handler {
 			a[i] = i + 1
 		}
 		return a
-	}, "str": strconv.Itoa, "cycle": func(s string) string { return cycleLabels[s] }, "annStatus": status.AnnouncementStatus, "lower": strings.ToLower, "listCycles": func() []string { return []string{"month", "quarter", "half", "year", "once"} }, "listCurrencies": func() []string { return []string{"CNY", "USD", "EUR"} }, "listDays": func() []string { return []string{"30", "14", "7", "3", "1"} }, "listPct": func() []string { return []string{"50", "80", "90", "95", "100"} }, "currency": store.CurrencySymbol, "directions": func() []option {
+	}, "budgetReason": budgetReason, "str": strconv.Itoa, "cycle": func(s string) string { return cycleLabels[s] }, "annStatus": status.AnnouncementStatus, "lower": strings.ToLower, "listCycles": func() []string { return []string{"month", "quarter", "half", "year", "three_year", "once"} }, "listCurrencies": func() []string { return []string{"CNY", "USD", "EUR"} }, "listDays": func() []string { return []string{"30", "14", "7", "3", "1"} }, "listPct": func() []string { return []string{"50", "80", "90", "95", "100"} }, "currency": store.CurrencySymbol, "directions": func() []option {
 		return []option{{"both", "上行 + 下行合计"}, {"out", "只算上行（出站）"}, {"in", "只算下行（入站）"}, {"max", "取两者中较大的"}}
 	}, "publicIntervals": func() []option {
 		return []option{{"30", "每 30 秒"}, {"60", "每 1 分钟"}, {"300", "每 5 分钟"}}

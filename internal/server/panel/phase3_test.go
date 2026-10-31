@@ -390,7 +390,7 @@ func TestBillingUnsetAndSelectOrder(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body)
 	}
-	row := regexp.MustCompile(`(?s)<tbody><tr>.*?</tr>`).FindString(w.Body.String())
+	row := regexp.MustCompile(`(?s)<table class="billing-table">.*?<tbody><tr>.*?</tr>`).FindString(w.Body.String())
 	if !strings.Contains(row, "0 GB") || !strings.Contains(row, "未设置账单 · 只记录用量") {
 		t.Fatal(row)
 	}

@@ -73,7 +73,7 @@ func PredictionText(b Billing, t Traffic, days []Daily, now time.Time, offline b
 func DecideReminders(b Billing, t Traffic, days []Daily, seen map[string]bool, now time.Time) []Reminder {
 	out := []Reminder{}
 	remaining, hasExpiry := Remaining(b.Expiry, now)
-	if hasExpiry && b.AutoRenew && b.Cycle != "once" && remaining <= -2 {
+	if hasExpiry && b.AutoRenew && CycleMonths(b.Cycle) > 0 && remaining <= -2 {
 		expiry := b.Expiry
 		for remaining < 0 {
 			expiry = Advance(expiry, b.Cycle, b.Anchor(), now.Location())
